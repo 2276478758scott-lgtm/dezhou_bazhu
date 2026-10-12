@@ -17,6 +17,7 @@
     if(['idle','complete'].includes(x.phase)?x.actor!==null:!x.pending.includes(x.actor))throw new Error('存档行动者无效');
     const lengths={preflop:0,flop:3,turn:4,river:5};if(x.phase in lengths&&x.board.length!==lengths[x.phase])throw new Error('存档公共牌数量无效');
     if(!integer(x.currentBet??0)||!integer(x.minRaise??x.bb)||!integer(x.hand))throw new Error('存档下注状态无效');
+    if(x.challenges){const c=x.challenges;if(!integer(c.hand)||c.hand>x.hand||!integer(c.used)||c.used>2||!Array.isArray(c.keys)||c.keys.length!==c.used||new Set(c.keys).size!==c.keys.length||c.keys.some(k=>typeof k!=='string'||k.length>80))throw new Error('存档喊话额度无效');}
     if(!['idle','complete'].includes(x.phase)&&x.players.some(p=>p.bet>x.currentBet))throw new Error('存档下注额度不一致');
     if(x.phase==='complete'){
       const expected=P.settle(x.players,x.board,x.dealer);if(JSON.stringify(expected.awards)!==JSON.stringify(x.result?.awards)||JSON.stringify(expected.hands)!==JSON.stringify(x.result?.hands)||JSON.stringify(expected.pots)!==JSON.stringify(x.result?.pots)||expected.kind!==x.result?.kind||!Array.isArray(x.handStart)||x.handStart.length!==4||x.handStart.some(n=>!integer(n))||JSON.stringify(x.players.map((p,i)=>p.stack-x.handStart[i]))!==JSON.stringify(x.result.net))throw new Error('存档结算不一致');

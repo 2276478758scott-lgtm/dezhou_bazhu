@@ -1,102 +1,25 @@
-[
-  {
-    "sha256": "B88BE1782ABD93B30A7CE1A38CAF7F54A714F40087A17173B9310800E4643696",
-    "bytes": 2173,
-    "name": "安装与发布说明.txt"
-  },
-  {
-    "sha256": "723162D3D0FA469247179C4665D88A2DE42ED56500257C2F5765097D3720ED0A",
-    "bytes": 2654,
-    "name": "本轮验证报告.md"
-  },
-  {
-    "sha256": "F7D3766E59BA1404BED5AB9C4F1F527859C654A9CD3B9EE896CEE28E94CDD79A",
-    "bytes": 5213,
-    "name": "执行版使用说明.md"
-  },
-  {
-    "sha256": "34C3FE21D3D2F792C1507E0C10723A6A04FE29821C3450EB2D81241C88A76046",
-    "bytes": 13703,
-    "name": "ai.js"
-  },
-  {
-    "sha256": "26677AC715DC301DEAC75070916600E22529758471F03E6C69F1D961D04B330C",
-    "bytes": 19522,
-    "name": "app.js"
-  },
-  {
-    "sha256": "A226D15C591C5DCA96F4CE0FB2F6423C3F152961AE3840238195D31E40371586",
-    "bytes": 971,
-    "name": "compute.js"
-  },
-  {
-    "sha256": "4121E2F9C5A43E354449CBFD456FCACB6F0B8606D9E59C4A2AE3ABE6A8892D2D",
-    "bytes": 13465,
-    "name": "core.js"
-  },
-  {
-    "sha256": "DF7EB7C8C1BCC0FC326291704BE11899410FD46901FFD055503D68539546A65A",
-    "bytes": 7019,
-    "name": "emotion.js"
-  },
-  {
-    "sha256": "FF98B7BAE576E8F869B205013E2F0BCE825FD3F96EE7798C9A21ECC3AA440860",
-    "bytes": 4548,
-    "name": "experience.js"
-  },
-  {
-    "sha256": "FD3544CDAD7AD50FD0960219E83878C4DCE00D9EF239DE29F5165687E040B7E7",
-    "bytes": 2674,
-    "name": "helper.js"
-  },
-  {
-    "sha256": "14C3DFC1573A9A2BF047A46B5F866E9C62F0C6A75D4238D1B3F7B293DDCEBA25",
-    "bytes": 3016,
-    "name": "icon-192.png"
-  },
-  {
-    "sha256": "A886BBC158ED395275FF4DF08738191B433BC6B1EF92BA74B31734CFAC385910",
-    "bytes": 8842,
-    "name": "icon-512.png"
-  },
-  {
-    "sha256": "3A5723CCDD612732B3252A8ADB6B129DC02A2F83A66E92F6D2C31E76805C00E4",
-    "bytes": 7135,
-    "name": "index.html"
-  },
-  {
-    "sha256": "052A0D1E50D6990CE2BA7221017A252DD4B817BC945FB90B993525541E86E96F",
-    "bytes": 9003,
-    "name": "language.js"
-  },
-  {
-    "sha256": "49E76F043B6502510257679A71AB198D29EB7D741C350E82C0B972D7486FEF7E",
-    "bytes": 352,
-    "name": "manifest.webmanifest"
-  },
-  {
-    "sha256": "D0C8D24709FC91C4DB1EE7F93F8673425CCBC9192209F33314365201256AD04D",
-    "bytes": 1289,
-    "name": "pwa.js"
-  },
-  {
-    "sha256": "6EDE9F92C4FD10C858BF9C1F6E5BA8345C6DD6D56FB5B3AECB8CF7B8407367F1",
-    "bytes": 4296,
-    "name": "state.js"
-  },
-  {
-    "sha256": "35AAEB9C17026E9238B971E988162CCA63339F4E8AAE07BB5EB498DD240A90AB",
-    "bytes": 10489,
-    "name": "style.css"
-  },
-  {
-    "sha256": "58AA61C3BFDEF78777F83C885A2C3E62138913305CC2B786E5614EFA0AEB68A9",
-    "bytes": 1063,
-    "name": "sw.js"
-  },
-  {
-    "sha256": "0EC0ADE7581D2F033C60F76CEF5AA9ED1FDD665DC2587EA4E37291F7E4FCE4D2",
-    "bytes": 662,
-    "name": "worker.js"
-  }
-]
+{
+  "ai.js": "53ea69febef6da408169c686d48ee78324864253007fa65874e35a4b72a14823",
+  "app.js": "89740dddef306df7ce22c58ec313397055da7ac8fe30c3ff89a58fc67453588a",
+  "challenge.js": "e96835af1022f5401110edbd6cd2b7b89d8f8b72ae91bb9e19979f0979cb8154",
+  "compute.js": "a226d15c591c5dca96f4ce0fb2f6423c3f152961ae3840238195d31e40371586",
+  "core.js": "4121e2f9c5a43e354449cbfd456fcacb6f0b8606d9e59c4a2ae3abe6a8892d2d",
+  "dialogue-data.js": "860b55156959e6244622ef4e48832d29230d61e7e4e7483812b7a66c2761ca83",
+  "emotion.js": "55ab63c0074fc9eb915bae8e2795aa2e820d232713f0b47ce38b563c92cf4d7c",
+  "experience.js": "98b34a945b17286269505aacbdf186355a744d2d1c86272e2a2c75ba1d806ebd",
+  "helper.js": "fd3544cdad7ad50fd0960219e83878c4dce00d9ef239de29f5165687e040b7e7",
+  "icon-192.png": "14c3dfc1573a9a2bf047a46b5f866e9c62f0c6a75d4238d1b3f7b293ddceba25",
+  "icon-512.png": "a886bbc158ed395275ff4df08738191b433bc6b1ef92ba74b31734cfac385910",
+  "index.html": "1d13115f64493b17606d0de38b1376534143afef73832c4def99938d42a72031",
+  "language.js": "e89ea6789aad027fe537554d93e2ae0ed790543286c18690ec766c5547f0d5f9",
+  "manifest.webmanifest": "49e76f043b6502510257679a71ab198d29eb7d741c350e82c0b972d7486fef7e",
+  "mobile.js": "b746ecd513c37226eef0ff2f762e1596fa557d6f9d6bb7fa44ceb2f32f1e0b14",
+  "pwa.js": "d0c8d24709fc91c4db1ee7f93f8673425ccbc9192209f33314365201256ad04d",
+  "state.js": "ead2d678f430c915e6502e178bc2b6bd67320d2f896181a342aa69d39c006867",
+  "style.css": "a69fea83cd0dfa6c224390b2876e03700afa12316ce36b56f01eb0c3cf0d3805",
+  "sw.js": "66c3091cabcebd23bda798b63b45e187ad2de9a72e59dad65211207aaa691b83",
+  "worker.js": "0ec0ade7581d2f033c60f76cef5aa9ed1fdd665dc2587ea4e37291f7e4fce4d2",
+  "安装与发布说明.txt": "0ec40d47c7221512faf6ade17b5648df85d8d824a0bc58a7038a5230f445c66c",
+  "执行版使用说明.md": "446a48ef0e0e0734f24e9991e2876e3bfb20fbb81b8f0fbae9a2c404c8d2d8cf",
+  "本轮验证报告.md": "df56e76b6d47662c103f03f71afcf188b90b28d720a112677d23488c0e142a49"
+}

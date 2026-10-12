@@ -39,7 +39,7 @@
         // Public raises tighten a range, but retain bluffs. Rejected cards return to the sample deck.
         let hole=[deck.pop(),deck.pop()];
         const model=modelOpponent(o),raiseFrequency=model.aggression;
-        const publicActions=(v.history||[]).filter(a=>a.seat===o.seat),last=publicActions[publicActions.length-1];
+        const publicActions=(v.history||[]).filter(a=>a.seat===o.seat&&a.type!=='taunt'),last=publicActions[publicActions.length-1];
         const vpip=(o.stats.vpip+4)/(o.stats.hands+10);
         const rangeFloor=o.lastAction==='raise'?0.68-Math.min(0.24,raiseFrequency*0.42)+(model.style==='tight'?0.04:0):0.51-vpip*0.15;
         if(rng()<(o.lastAction==='raise'||last?.type==='raise'?0.72:0.40)) {

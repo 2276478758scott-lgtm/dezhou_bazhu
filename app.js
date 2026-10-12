@@ -3,7 +3,9 @@
   'use strict';
   const $=id=>document.getElementById(id),P=window.Poker,A=window.PokerAI,E=window.PokerExperience;
   const phaseNames={idle:'准备开局',preflop:'翻牌前',flop:'翻牌',turn:'转牌',river:'河牌',complete:'本手结束'};
-  const S=window.PokerState,M=window.PokerEmotion,L=window.PokerLanguage;
+  const S=window.PokerState,M=window.PokerEmotion,L=window.PokerLanguage,H=window.PokerChallenge;
+  let response=null,responseTimer=null;
+  function clearResponse(){clearTimeout(responseTimer);response=null;}
   let game=S?S.create():new P.Game(),epoch=0,timer=null,busy=false,paused=false,stage='',displaySeat=null,selectedResult=null,resultShown=0;
   let pendingJob=null,deadline=0,remaining=0,logCursor=0,unread=0,revealedHand=0;
   const conversation=[],lastSpeech={};
@@ -50,9 +52,11 @@
     $('pot').textContent=(complete?'本手底池 ':'底池 ')+displayedPot.toLocaleString();
     $('street').textContent=`${phaseNames[game.phase]} · 盲注 10 / 20`;
     $('board').replaceChildren(...Array.from({length:5},(_,i)=>card(game.board?.[i])));
-    $('top-speech').hidden=!(stage==='reading'&&displaySeat===2);$('top-speech').textContent=lastSpeech[2]||'';
+    const speaking=stage==='reading'?{seat:displaySeat,text:lastSpeech[displaySeat]}:response;
+    $('top-speech').hidden=!(speaking?.seat===2);$('top-speech').textContent=speaking?.seat===2?speaking.text:'';
     game.players.forEach((p,i)=>{
-      const seat=$('seat-'+i);seat.className=seat.className.replace(/\s(active|folded)/g,'');
+      const seat=$('seat-'+i);seat.className=seat.className.replace(/\s(active|folded|showdown)/g,'');
+      if(complete&&game.result.hands?.[i])seat.classList.add('showdown');
       if((busy?displaySeat:game.actor)===i)seat.classList.add('active');if(p.folded&&started&&!complete)seat.classList.add('folded');
       seat.replaceChildren();
       const name=document.createElement('div');name.className='seat-name';name.textContent=p.name;
@@ -64,16 +68,18 @@
       const meta=document.createElement('div');meta.className='seat-meta';
       meta.textContent=!p.hole.length&&p.stack===0?'已淘汰':p.folded&&started?'已弃牌':complete?(game.result.awards[i]?`收回 ${game.result.awards[i]}`:'未获底池'):p.stack===0&&started?'已全下':p.bet?`本轮投入 ${p.bet}`:i>0?['','强势施压','狡猾设局','谨慎反击'][i]:'你的底牌';
       const contribution=document.createElement('div');contribution.className='seat-contribution';
+      contribution.setAttribute('data-total',p.total.toLocaleString());contribution.setAttribute('data-last',(p.lastContribution||0).toLocaleString());
       const total=document.createElement('div');total.textContent=`本手累计投入 ${p.total.toLocaleString()}`;
       const current=document.createElement('div');current.textContent=`本次投入 ${(p.lastContribution||0).toLocaleString()}`;
       contribution.append(total,current);seat.append(name,stack,contribution,cards,meta);
       if(i&&M){const mood=document.createElement('div');mood.className='seat-mood';mood.textContent=M.label(p.emotion,p.profile);seat.append(mood);}
       if(complete&&game.result.hands?.[i]){const show=document.createElement('button');show.className='best-select compact';show.textContent=P.NAMES[game.result.scores[i][0]]+' · 看最佳牌';show.onclick=()=>{selectedResult=i;render();};seat.append(show);}
-      if(i!==2&&stage==='reading'&&displaySeat===i&&lastSpeech[i]){
-        const bubble=document.createElement('div');bubble.className='speech-bubble';bubble.setAttribute('role','status');bubble.textContent=lastSpeech[i];seat.append(bubble);
+      if(i!==2&&speaking?.seat===i&&speaking.text){
+        const bubble=document.createElement('div');bubble.className='speech-bubble';bubble.setAttribute('role','status');bubble.textContent=speaking.text;seat.append(bubble);
       }
     });
     const l=game.actor===0&&!busy&&!paused?game.legal():null;
+    $('challenge-open').disabled=!l||!H?.available(game)||!game.players.some((p,i)=>i&&!p.folded&&p.stack>0&&p.hole.length===2);
     $('fold').disabled=!l;$('call').disabled=!l;
     $('call').textContent=l?(l.check?'过牌':l.callAmount===game.players[0].stack?`全下跟注 ${l.callAmount}`:`跟注 ${l.callAmount}`):'过牌 / 跟注';
     $('raise').disabled=!l?.raise;$('raise-to').disabled=!l?.raise;
@@ -105,7 +111,7 @@
   function resultDialog(){
     if(resultShown===game.hand)return;resultShown=game.hand;const box=$('hand-result-body');box.replaceChildren();
     const alive=game.players.filter(p=>p.stack>0);$('hand-result-title').textContent=game.players[0].stack===0?'你已被淘汰':alive.length===1?'胜利！你拿下了整桌':(game.result.net[0]>0?'本手获利':game.result.net[0]<0?'本手失利':'本手持平');
-    for(const [i,detail] of Object.entries(game.result.hands||{})){const row=document.createElement('div'),name=document.createElement('p'),cards=document.createElement('div');name.textContent=`${game.players[i].name}：${P.NAMES[detail.score[0]]}`;cards.className='cards';detail.bestFive.forEach(c=>cards.append(card(c)));row.append(name,cards);box.append(row);}
+    for(const [i,detail] of Object.entries(game.result.hands||{})){const row=document.createElement('div'),name=document.createElement('p'),hole=document.createElement('div'),cards=document.createElement('div');name.textContent=`${game.players[i].name}：${P.NAMES[detail.score[0]]} · 底牌 / 最佳五张`;hole.className='cards revealed-hole';game.players[i].hole.forEach(c=>hole.append(card(c)));cards.className='cards';detail.bestFive.forEach(c=>cards.append(card(c)));row.append(name,hole,cards);box.append(row);}
     game.result.pots.forEach((pot,k)=>{const row=document.createElement('p');row.textContent=`${pot.refund?'超额退还':k===0?'主池':'边池'} ${pot.amount} → ${pot.winners.map(i=>game.players[i].name).join(' / ')}`;box.append(row);});
     game.players.forEach((p,i)=>{const row=document.createElement('p');row.textContent=`${p.name}：${game.result.net[i]>=0?'+':''}${game.result.net[i]}，剩余 ${p.stack}`;box.append(row);});
     if(game.result.kind==='fold'){const row=document.createElement('p');row.textContent='本手由其他玩家弃牌结束，不公开赢家底牌。';box.append(row);}
@@ -145,6 +151,27 @@
     catch(e){$('status').textContent=e.message;}
   }
   $('fold').onclick=()=>action('fold');
+  $('challenge-open').onclick=()=>{
+    if(busy||paused||!H?.available(game))return;
+    const select=$('challenge-target'),previous=select.value;select.replaceChildren();
+    game.players.forEach((p,i)=>{if(i&&!p.folded&&p.stack>0&&p.hole.length===2){const o=document.createElement('option');o.value=i;o.textContent=p.name;select.append(o);}});
+    if([...select.options].some(o=>o.value===previous))select.value=previous;
+    const used=game.challenges?.hand===game.hand?game.challenges.used:0;
+    $('challenge-state').textContent=`本手还可喊 ${2-used} 次，每次出牌机会一次。喊话不花筹码，也不代替出牌。`;
+    $('challenge-dialog').showModal?.();
+  };
+  if(H)H.presets.forEach(text=>{const b=document.createElement('button');b.className='quiet';b.textContent=text;b.onclick=()=>{$('challenge-text').value=text;};$('challenge-presets').append(b);});
+  $('challenge-close').onclick=()=>$('challenge-dialog').close?.();
+  $('challenge-send').onclick=()=>{
+    if(busy||paused){$('challenge-state').textContent='请等轮到你再发话。';return;}
+    try{
+      const target=Number($('challenge-target').value),sent=H.send(game,target,$('challenge-text').value,speechMemory[target]||[]),p=game.players[target];
+      appendMessage(sent.text,'chat',`你 → ${p.name}`);appendMessage(sent.reply,'chat',p.name);
+      lastSpeech[target]=sent.reply;(speechMemory[target]||=[]).push(sent.reply);speechMemory[target]=speechMemory[target].slice(-8);
+      clearResponse();response={seat:target,text:sent.reply};responseTimer=setTimeout(()=>{response=null;render();},4500);
+      $('talk').textContent=`${p.name}：「${sent.reply}」`;$('challenge-dialog').close?.();persist();render();
+    }catch(e){$('challenge-state').textContent=e.message;}
+  };
   $('call').onclick=()=>action(game.legal()?.check?'check':'call');
   $('raise').onclick=()=>action('raise',Number($('raise-to').value));
   $('raise-to').onkeydown=e=>{if(e.key==='Enter')$('raise').click();};
@@ -159,8 +186,8 @@
     const stacks=[1500,...[1,2,3].map(i=>Number($('chips-'+i).value||1500))];if(stacks.some(n=>!Number.isInteger(n)||n<1||n>1000000))throw new Error('初始筹码须为 1–1,000,000 的整数');
     const profiles=['human',...[1,2,3].map(i=>$('ai-'+i).value||['','maniac','calculator','gambler'][i])];if(A.PROFILES&&profiles.slice(1).some(id=>!A.PROFILES[id]))throw new Error('请选择有效的对手');
     game=S?S.create({stacks,profiles},Date.now()):new P.Game({stacks,profiles});hydratePlayers();
-  }selectedResult=null;game.startHand();game.players.forEach(p=>{if(p.emotion)M.begin(p.emotion);});logCursor=0;syncLog();if(game.hand===1&&L)game.players.forEach((p,i)=>{if(i)appendMessage(L.choose(p.profile,'open',{},[],game.rng),'chat',p.name);});persist();render();schedule();}catch(e){$('status').textContent=e.message;}};
-  $('restart').onclick=()=>{if(game.phase!=='idle'&&!confirm('重新开始四人对战？筹码、聊天记录与对手记忆将重置。'))return;epoch++;clearTimeout(timer);window.PokerCompute?.cancel();pendingJob=null;busy=false;paused=false;stage='';displaySeat=null;logCursor=0;unread=0;revealedHand=0;resultShown=0;selectedResult=null;conversation.length=0;for(const key of Object.keys(lastSpeech))delete lastSpeech[key];for(const key of Object.keys(speechMemory))delete speechMemory[key];$('history').replaceChildren();$('latest').hidden=true;game=S?S.create():new P.Game();hydratePlayers();$('talk').textContent='新的一桌，重新选择对手与筹码。';$('hand-result').close?.();coach.setTurn(null);persist();render();};
+  }clearResponse();$('challenge-dialog').close?.();selectedResult=null;game.startHand();game.players.forEach(p=>{if(p.emotion)M.begin(p.emotion);});logCursor=0;syncLog();if(game.hand===1&&L)game.players.forEach((p,i)=>{if(i)appendMessage(L.choose(p.profile,'open',{},[],game.rng),'chat',p.name);});persist();render();schedule();}catch(e){$('status').textContent=e.message;}};
+  $('restart').onclick=()=>{if(game.phase!=='idle'&&!confirm('重新开始四人对战？筹码、聊天记录与对手记忆将重置。'))return;epoch++;clearResponse();$('challenge-dialog').close?.();clearTimeout(timer);window.PokerCompute?.cancel();pendingJob=null;busy=false;paused=false;stage='';displaySeat=null;logCursor=0;unread=0;revealedHand=0;resultShown=0;selectedResult=null;conversation.length=0;for(const key of Object.keys(lastSpeech))delete lastSpeech[key];for(const key of Object.keys(speechMemory))delete speechMemory[key];$('history').replaceChildren();$('latest').hidden=true;game=S?S.create():new P.Game();hydratePlayers();$('talk').textContent='新的一桌，重新选择对手与筹码。';$('hand-result').close?.();coach.setTurn(null);persist();render();};
   $('pause').onclick=()=>{
     if(!paused){paused=true;if(pendingJob){remaining=Math.max(0,deadline-Date.now());clearTimeout(timer);}}
     else {paused=false;if(pendingJob){const job=pendingJob;queue(job,remaining);}else if(restored){restored=false;schedule();}}

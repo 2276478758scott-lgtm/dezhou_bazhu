@@ -55,5 +55,12 @@
     if(m.frustration>c.f)return c.frustrationWord;if(profile==='catcher'&&(m.doubt||0)>.22)return '疑心';if(m.pressure>c.p)return c.pressureWord;
     if(m.confidence>c.high)return c.confidenceWord;if(m.confidence<c.low)return '谨慎';if((m.focus||0)>.22)return c.focusWord;return '冷静';
   }
-  return {weights,reactions,config,initial,begin,action,finish,modifiers,label};
+  function provoke(m,profile,intensity=1){const c=config(profile),s=(weights[profile]||[.2])[0],gain=.04+.40*s;
+    m.frustration=clamp(m.frustration+gain*c.frustration*intensity);
+    m.pressure=clamp(m.pressure+(.025+.22*s)*c.pressure*intensity);
+    m.focus=clamp((m.focus||0)+(.10+.16*(1-s))*c.focus*intensity);
+    if(profile==='catcher')m.doubt=clamp((m.doubt||0)+.18*intensity);
+    return {frustration:gain*c.frustration*intensity};
+  }
+  return {weights,reactions,config,initial,begin,action,finish,modifiers,label,provoke};
 });
