@@ -36,3 +36,10 @@ body{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inse
 @media(max-width:800px) and (max-height:600px){.seat:not(.bottom).showdown .cards{display:none}}
 
 #challenge-dialog{width:min(460px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box}#challenge-dialog label{display:block;margin:12px 0 6px}#challenge-text{width:100%;box-sizing:border-box;font-size:16px}#challenge-target{font-size:16px}#challenge-presets{display:grid;gap:6px;margin-top:12px}#challenge-presets button{text-align:left;white-space:normal}#challenge-state{font-size:12px;color:#d4cfa9} @media(max-width:800px),(max-width:950px) and (max-height:500px){.session-actions{gap:4px}.session-actions button{font-size:10px;padding:4px 6px;min-width:0;white-space:nowrap}}
+
+/* Anchor the top player's reply to its seat, never to the table corner. */
+.seat.top .top-speech{top:0;left:calc(100% + 6px);right:auto;bottom:auto;transform:none;width:190px;max-width:none;box-sizing:border-box}@media(max-width:800px),(max-width:950px) and (max-height:500px){.seat.top .top-speech{width:min(155px,38vw);top:0}}
+
+#summary-dialog{width:min(620px,calc(100vw - 24px));box-sizing:border-box;max-height:calc(100dvh - 24px);overflow:auto}#summary-open{margin:6px 0;text-align:left}#summary-scope{font-size:16px}.stats-card{border:1px solid #ffffff20;border-radius:10px;padding:10px;margin:10px 0}.stats-card h3{margin:0 0 6px;font-size:14px}.stats-card p{margin:4px 0;font-size:12px}#summary-body details{padding:7px;border-top:1px solid #ffffff20}#summary-body summary{cursor:pointer;font-size:12px}.end-summary{margin-top:16px;border-top:1px solid #ffffff25}
+
+.pokerface-switch{display:flex;gap:8px;align-items:center;margin-bottom:12px;font-size:13px}.pokerface-switch input{width:auto}.setup-grid select[hidden]{display:none!important}

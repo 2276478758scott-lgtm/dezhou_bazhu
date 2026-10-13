@@ -3,7 +3,8 @@
   'use strict';
   const $=id=>document.getElementById(id),P=window.Poker,A=window.PokerAI,E=window.PokerExperience;
   const phaseNames={idle:'准备开局',preflop:'翻牌前',flop:'翻牌',turn:'转牌',river:'河牌',complete:'本手结束'};
-  const S=window.PokerState,M=window.PokerEmotion,L=window.PokerLanguage,H=window.PokerChallenge;
+  const S=window.PokerState,M=window.PokerEmotion,L=window.PokerLanguage,H=window.PokerChallenge,U=window.PokerSummary,F=window.PokerFace;
+  let ledger=U?U.create():null;
   let response=null,responseTimer=null;
   function clearResponse(){clearTimeout(responseTimer);response=null;}
   let game=S?S.create():new P.Game(),epoch=0,timer=null,busy=false,paused=false,stage='',displaySeat=null,selectedResult=null,resultShown=0;
@@ -12,10 +13,13 @@
   const speechMemory={};let saveError='',restored=false;
   let storage=null;try{storage=window.localStorage;}catch{saveError='本浏览器禁止存储，游戏可继续，但刷新后不能恢复。';}
   const coach=window.PokerCoach.mount();
-  function hydratePlayers(){game.players.forEach((p,i)=>{if(i&&A.PROFILES?.[p.profile])p.name=A.PROFILES[p.profile].name;if(M&&!p.emotion)p.emotion=M.initial();});}
-  hydratePlayers();
+  function hydratePlayers(){game.players.forEach((p,i)=>{if(i&&A.PROFILES?.[p.profile]&&!game.pokerface?.enabled)p.name=A.PROFILES[p.profile].name;if(M)p.emotion={...M.initial(),...p.emotion};p.aiMemory||={reads:{}};});}
+  if(F)F.hydrate(game,A.PROFILES);hydratePlayers();
   for(let i=1;i<4;i++){const select=$('ai-'+i);if(A.PROFILES){select.replaceChildren();for(const [value,profile] of Object.entries(A.PROFILES)){const option=document.createElement('option');option.value=value;option.textContent=profile.name;select.append(option);}select.value=['','maniac','calculator','gambler'][i];}$('chips-'+i).value=1500;}
-  function persist(){if(!S)return;if(!storage){$('save-state').textContent=saveError||'本浏览器无法保存，刷新后不能恢复。';return;}try{S.save(storage,game,{conversation,lastSpeech,speechMemory,pace:$('pace').value,difficulty:$('difficulty').value,resultShown});saveError='';}catch{saveError='自动保存失败：存储不可用或空间不足，请保持页面打开。';}$('save-state').textContent=saveError||'进度已自动保存于本机';}
+  function safeSpeech(text){return game.pokerface?.enabled&&!game.pokerface.revealed&&F?F.safe(text):text;}
+  function syncMode(){const hidden=$('pokerface').checked;for(let i=1;i<4;i++)$('ai-'+i).hidden=hidden;}
+  $('pokerface').onchange=syncMode;
+  function persist(){if(U){U.start(ledger,game);U.record(ledger,game);}if(!S)return;if(!storage){$('save-state').textContent=saveError||'本浏览器无法保存，刷新后不能恢复。';return;}try{S.save(storage,game,{conversation,lastSpeech,speechMemory,ledger,pace:$('pace').value,difficulty:$('difficulty').value,resultShown});saveError='';}catch{saveError='自动保存失败：存储不可用或空间不足，请保持页面打开。';}$('save-state').textContent=saveError||'进度已自动保存于本机';}
   function appendMessage(text,kind='action',speaker=null) {
     const list=$('history'),follow=list.scrollHeight-list.scrollTop-list.clientHeight<45;
     const entry={text,kind,speaker,hand:game.hand};conversation.push(entry);
@@ -28,7 +32,7 @@
   }
   function syncLog(speech=null) {
     const lines=game.log.slice(logCursor);logCursor=game.log.length;
-    if(speech&&lines.length){appendMessage(lines.shift());appendMessage(speech.text,'chat',speech.name);}
+    if(speech&&lines.length){appendMessage(lines.shift());if(speech.text)appendMessage(speech.text,'chat',speech.name);}
     for(const line of lines)appendMessage(line,/^(第 |翻牌：|转牌：|河牌：|底池 |退回)/.test(line)?'system':'action');
   }
   function queue(fn,delay) {
@@ -47,23 +51,23 @@
     $('hand-info').textContent=`第 ${game.hand} 手 · ${phaseNames[game.phase]}`;
     $('difficulty').disabled=started&&!complete;
     for(let i=1;i<4;i++){$('ai-'+i).disabled=started;$('chips-'+i).disabled=started;}
-    $('setup').hidden=started;
+    $('setup').hidden=started;$('pokerface').disabled=started;
     const displayedPot=complete?game.result.pots.filter(p=>!p.refund).reduce((s,p)=>s+p.amount,0):game.pot();
     $('pot').textContent=(complete?'本手底池 ':'底池 ')+displayedPot.toLocaleString();
     $('street').textContent=`${phaseNames[game.phase]} · 盲注 10 / 20`;
     $('board').replaceChildren(...Array.from({length:5},(_,i)=>card(game.board?.[i])));
     const speaking=stage==='reading'?{seat:displaySeat,text:lastSpeech[displaySeat]}:response;
-    $('top-speech').hidden=!(speaking?.seat===2);$('top-speech').textContent=speaking?.seat===2?speaking.text:'';
+    const topSpeech=$('top-speech');topSpeech.hidden=!(speaking?.seat===2);topSpeech.textContent=speaking?.seat===2?speaking.text:'';
     game.players.forEach((p,i)=>{
       const seat=$('seat-'+i);seat.className=seat.className.replace(/\s(active|folded|showdown)/g,'');
-      if(complete&&game.result.hands?.[i])seat.classList.add('showdown');
+      if(complete&&p.hole.length===2)seat.classList.add('showdown');
       if((busy?displaySeat:game.actor)===i)seat.classList.add('active');if(p.folded&&started&&!complete)seat.classList.add('folded');
       seat.replaceChildren();
-      const name=document.createElement('div');name.className='seat-name';name.textContent=p.name;
+      const name=document.createElement('div');name.className='seat-name';name.textContent=(i&&game.pokerface?.enabled?'🙂 ':'')+p.name;
       for(const [condition,label] of [[i===game.dealer,'D'],[i===game.sbSeat,'SB'],[i===game.bbSeat,'BB']])if(condition&&started){const b=document.createElement('span');b.className='badge';b.textContent=label;name.append(b);}
       const stack=document.createElement('div');stack.className='seat-stack';stack.textContent=p.stack.toLocaleString();
       const cards=document.createElement('div');cards.className='cards';
-      const reveal=i===0||(complete&&game.result.kind==='showdown'&&!p.folded);
+      const reveal=i===0||complete;
       for(const c of p.hole)cards.append(card(c,!reveal));
       const meta=document.createElement('div');meta.className='seat-meta';
       meta.textContent=!p.hole.length&&p.stack===0?'已淘汰':p.folded&&started?'已弃牌':complete?(game.result.awards[i]?`收回 ${game.result.awards[i]}`:'未获底池'):p.stack===0&&started?'已全下':p.bet?`本轮投入 ${p.bet}`:i>0?['','强势施压','狡猾设局','谨慎反击'][i]:'你的底牌';
@@ -71,7 +75,7 @@
       contribution.setAttribute('data-total',p.total.toLocaleString());contribution.setAttribute('data-last',(p.lastContribution||0).toLocaleString());
       const total=document.createElement('div');total.textContent=`本手累计投入 ${p.total.toLocaleString()}`;
       const current=document.createElement('div');current.textContent=`本次投入 ${(p.lastContribution||0).toLocaleString()}`;
-      contribution.append(total,current);seat.append(name,stack,contribution,cards,meta);
+      contribution.append(total,current);seat.append(name,stack,contribution,cards,meta);if(i===2)seat.append(topSpeech);
       if(i&&M){const mood=document.createElement('div');mood.className='seat-mood';mood.textContent=M.label(p.emotion,p.profile);seat.append(mood);}
       if(complete&&game.result.hands?.[i]){const show=document.createElement('button');show.className='best-select compact';show.textContent=P.NAMES[game.result.scores[i][0]]+' · 看最佳牌';show.onclick=()=>{selectedResult=i;render();};seat.append(show);}
       if(i!==2&&speaking?.seat===i&&speaking.text){
@@ -95,7 +99,7 @@
     const alive=game.players.filter(p=>p.stack>0);
     $('next').disabled=busy||paused||started&&!complete||complete&&alive.length<2;
     $('next').textContent=!started?'开始对战':alive.length<2?'对战结束':game.players[0].stack===0?'下一手 · 观战':'下一手';
-    $('status').textContent=paused?'牌桌已暂停，可以慢慢翻阅聊天记录。':stage==='revealing'?(game.result.kind==='showdown'?'本手摊牌：仍有资格争夺底池的玩家亮牌。':'其他人全部弃牌，本手无需公开赢家底牌。'):stage==='reading'?`${game.players[displaySeat].name}已行动 · 留一点时间读台词…`:!started?'为三个对手选择性格和筹码，再开始对战。':complete?(alive.length===1?`${alive[0].name}赢下整张桌子！`:game.players[0].stack===0?'你已被淘汰，可以继续观战或重新开局。':'本手结算完成，点击下一手继续。'):game.actor===0?'轮到你：跟、反加，还是放手？':`${game.players[game.actor].name}正在思考…`;
+    $('status').textContent=paused?'牌桌已暂停，可以慢慢翻阅聊天记录。':stage==='revealing'?'本手亮牌：所有参赛者公开底牌，弃牌者也展示。':stage==='reading'?`${game.players[displaySeat].name}已行动 · 留一点时间读台词…`:!started?'为三个对手选择性格和筹码，再开始对战。':complete?(alive.length===1?`${alive[0].name}赢下整张桌子！`:game.players[0].stack===0?'你已被淘汰，可以继续观战或重新开局。':'本手结算完成，点击下一手继续。'):game.actor===0?'轮到你：跟、反加，还是放手？':`${game.players[game.actor].name}正在思考…`;
     $('balance').textContent=`总筹码 ${(game.players.reduce((s,p)=>s+p.stack,0)+(complete?0:game.pot())).toLocaleString()}`;
     $('readout').textContent=E.styleText[A.modelOpponent(game.players[0]).style];
     $('pause').disabled=!started||complete&&!busy&&!paused;$('pause').textContent=paused?'继续':'暂停';
@@ -109,22 +113,26 @@
     }
   }
   function resultDialog(){
+    if(game.phase==='complete'&&game.players.filter(p=>p.stack>0).length===1)F?.reveal(game);
     if(resultShown===game.hand)return;resultShown=game.hand;const box=$('hand-result-body');box.replaceChildren();
     const alive=game.players.filter(p=>p.stack>0);$('hand-result-title').textContent=game.players[0].stack===0?'你已被淘汰':alive.length===1?'胜利！你拿下了整桌':(game.result.net[0]>0?'本手获利':game.result.net[0]<0?'本手失利':'本手持平');
     for(const [i,detail] of Object.entries(game.result.hands||{})){const row=document.createElement('div'),name=document.createElement('p'),hole=document.createElement('div'),cards=document.createElement('div');name.textContent=`${game.players[i].name}：${P.NAMES[detail.score[0]]} · 底牌 / 最佳五张`;hole.className='cards revealed-hole';game.players[i].hole.forEach(c=>hole.append(card(c)));cards.className='cards';detail.bestFive.forEach(c=>cards.append(card(c)));row.append(name,hole,cards);box.append(row);}
+    game.players.forEach((p,i)=>{if(p.hole.length===2&&!game.result.hands?.[i]){const row=document.createElement('div'),name=document.createElement('p'),hole=document.createElement('div');name.textContent=p.name+(p.folded?'（已弃牌，不参与结算）':'（独赢）');hole.className='cards revealed-hole';p.hole.forEach(c=>hole.append(card(c)));row.append(name,hole);box.append(row);}});
     game.result.pots.forEach((pot,k)=>{const row=document.createElement('p');row.textContent=`${pot.refund?'超额退还':k===0?'主池':'边池'} ${pot.amount} → ${pot.winners.map(i=>game.players[i].name).join(' / ')}`;box.append(row);});
     game.players.forEach((p,i)=>{const row=document.createElement('p');row.textContent=`${p.name}：${game.result.net[i]>=0?'+':''}${game.result.net[i]}，剩余 ${p.stack}`;box.append(row);});
-    if(game.result.kind==='fold'){const row=document.createElement('p');row.textContent='本手由其他玩家弃牌结束，不公开赢家底牌。';box.append(row);}
+    if(game.result.kind==='fold'){const row=document.createElement('p');row.textContent='本手由其他玩家弃牌结束；所有底牌供复盘，弃牌者不参与结算。';box.append(row);}
+    if(U&&(alive.length===1||game.players[0].stack===0)){const section=document.createElement('section');section.className='end-summary';const title=document.createElement('h3');title.textContent=alive.length===1?'整场战绩总结':'你的本场战绩（牌桌尚未结束）';section.append(title);const body=document.createElement('div');persist();window.PokerSummaryUI?.fill(body,ledger,'current',false);section.append(body);box.append(section);if(alive.length===1)$('hand-result-title').textContent=alive[0]===game.players[0]?'胜利！你拿下了整桌':alive[0].name+'赢下整场';}
+    for(const mapping of F?.mappings(game,A.PROFILES)||[]){const row=document.createElement('p');row.textContent='身份揭晓：'+mapping;box.append(row);}
     if($('hand-result').showModal&&!$('hand-result').open)$('hand-result').showModal();persist();
   }
-  function commit(seat,move){game.act(seat,move.type,move.target);if(Number.isFinite(move.eq))game.players[seat].expectedEquity=move.eq;if(M){const event=game.history[game.history.length-1];game.players.forEach((p,i)=>M.action(p.emotion,event,game.history.length,p.stack,game.bb,{profile:p.profile,seat:i,playing:p.hole.length===2,folded:p.folded}));if(game.phase==='complete')game.players.forEach((p,i)=>M.finish(p.emotion,p.profile,game.hand,game.result.net[i],game.handStart[i],p.expectedEquity||.5));}persist();}
+  function commit(seat,move){game.act(seat,move.type,move.target);if(seat>0)A.remember?.(game,seat,move);if(Number.isFinite(move.eq))game.players[seat].expectedEquity=move.eq;if(M){const event=game.history[game.history.length-1];game.players.forEach((p,i)=>M.action(p.emotion,event,game.history.length,p.stack,game.bb,{profile:p.profile,seat:i,playing:p.hole.length===2,folded:p.folded}));if(game.phase==='complete')game.players.forEach((p,i)=>M.finish(p.emotion,p.profile,game.hand,game.result.net[i],game.handStart[i],p.expectedEquity||.5));}if(game.phase==='complete'){A.learn?.(game);if(game.players.filter(p=>p.stack>0).length===1)F?.reveal(game);}persist();}
   function schedule() {
     if(game.phase==='complete'&&revealedHand!==game.hand){
-      revealedHand=game.hand;const token=epoch;busy=true;stage='revealing';displaySeat=null;
+      A.learn?.(game);if(game.players.filter(p=>p.stack>0).length===1)F?.reveal(game);revealedHand=game.hand;const token=epoch;busy=true;stage='revealing';displaySeat=null;
       if(M)game.players.forEach((p,i)=>M.finish(p.emotion,p.profile,game.hand,game.result.net[i],game.handStart[i],p.expectedEquity||.5));
       selectedResult=Object.keys(game.result.hands||{})[0]??null;
-      appendMessage(game.result.kind==='showdown'?'本手摊牌 · '+game.players.filter(p=>p.hole.length&&!p.folded).map(p=>`${p.name}：${p.hole.map(P.cardText).join(' ')}`).join('；'):'本手独赢 · 不公开底牌','system');
-      if(L)game.players.forEach((p,i)=>{if(i&&p.hole.length){const event=p.stack===0?'bust':game.result.net[i]>0?'win':game.result.net[i]<0?'lose':'tie',text=L.choose(p.profile,event,{emotion:p.emotion},speechMemory[i]||[],game.rng);appendMessage(text,'chat',p.name);(speechMemory[i]||= []).push(text);}});
+      appendMessage((game.result.kind==='showdown'?'本手摊牌':'本手独赢')+' · 全桌亮牌 · '+game.players.filter(p=>p.hole.length===2).map(p=>`${p.name}${p.folded?'（已弃牌）':''}：${p.hole.map(P.cardText).join(' ')}`).join('；'),'system');
+      if(L)game.players.forEach((p,i)=>{if(i&&p.hole.length){const event=p.stack===0?'bust':game.result.net[i]>0?'win':game.result.net[i]<0?'lose':'tie',text=safeSpeech(L.choose(p.profile,event,{emotion:p.emotion},speechMemory[i]||[],game.rng));p.emotion.spokenSerial=p.emotion.reactionSerial||0;appendMessage(text,'chat',p.name);(speechMemory[i]||= []).push(text);}});
       persist();render();queue(()=>{if(token!==epoch)return;busy=false;stage='';render();resultDialog();},3000);return;
     }
     if(game.actor===null||game.actor===0){busy=false;stage='';displaySeat=null;render();return;}
@@ -135,9 +143,11 @@
         const view=A.observe(game,seat,$('difficulty').value);
         const apply=move=>{if(token!==epoch)return;if(paused){queue(()=>apply(move),0);return;}
           const event=move.target===view.legal.maxRaiseTo&&move.type==='raise'?'allin':move.type==='raise'?move.reason==='steal'?'steal':move.reason==='value'?'value':'raise':move.type;
-          const text=L?L.choose(game.players[seat].profile,event,{emotion:game.players[seat].emotion,model:A.modelOpponent(view.seats[0]),targetPresent:!view.seats[0].folded&&view.seats[0].playing},speechMemory[seat]||[],game.rng):E.speech(seat,move.type,A.modelOpponent(view.seats[0]),lastSpeech[seat],Math.random,!view.seats[0].folded&&view.seats[0].playing);
+          commit(seat,move);
+          const text=safeSpeech(L?L.choose(game.players[seat].profile,event,{emotion:game.players[seat].emotion,model:A.modelOpponent(view.seats[0]),targetPresent:!view.seats[0].folded&&view.seats[0].playing},speechMemory[seat]||[],game.rng):E.speech(seat,move.type,A.modelOpponent(view.seats[0]),lastSpeech[seat],Math.random,!view.seats[0].folded&&view.seats[0].playing));
+          if(game.players[seat].emotion)game.players[seat].emotion.spokenSerial=game.players[seat].emotion.reactionSerial||0;
           lastSpeech[seat]=text;(speechMemory[seat]||=[]).push(text);speechMemory[seat]=speechMemory[seat].slice(-8);
-          commit(seat,move);syncLog({text,name:game.players[seat].name});$('talk').textContent=`${game.players[seat].name}：「${text}」`;stage='reading';persist();render();
+          syncLog({text,name:game.players[seat].name});$('talk').textContent=`${game.players[seat].name}：「${text}」`;stage='reading';persist();render();
           queue(()=>{if(token!==epoch)return;stage='';busy=false;schedule();},Math.max(3000,E.timing($('pace').value,move.type,text).hold));
         };
         if(window.PokerCompute&&typeof Worker!=='undefined')window.PokerCompute.run(view,Math.floor(game.rng()*4294967296)).then(result=>apply(result.move)).catch(error=>{if(token!==epoch)return;console.warn('AI task:',error);appendMessage('本地计算未完成，本次采用安全操作。','system');apply({type:view.legal.check?'check':'fold'});});
@@ -165,7 +175,7 @@
   $('challenge-send').onclick=()=>{
     if(busy||paused){$('challenge-state').textContent='请等轮到你再发话。';return;}
     try{
-      const target=Number($('challenge-target').value),sent=H.send(game,target,$('challenge-text').value,speechMemory[target]||[]),p=game.players[target];
+      const target=Number($('challenge-target').value),sent=H.send(game,target,$('challenge-text').value,speechMemory[target]||[]),p=game.players[target];sent.reply=safeSpeech(sent.reply);if(p.emotion)p.emotion.spokenSerial=p.emotion.reactionSerial||0;
       appendMessage(sent.text,'chat',`你 → ${p.name}`);appendMessage(sent.reply,'chat',p.name);
       lastSpeech[target]=sent.reply;(speechMemory[target]||=[]).push(sent.reply);speechMemory[target]=speechMemory[target].slice(-8);
       clearResponse();response={seat:target,text:sent.reply};responseTimer=setTimeout(()=>{response=null;render();},4500);
@@ -185,9 +195,9 @@
   $('next').onclick=()=>{if(busy||paused)return;try{if(game.phase==='idle'){
     const stacks=[1500,...[1,2,3].map(i=>Number($('chips-'+i).value||1500))];if(stacks.some(n=>!Number.isInteger(n)||n<1||n>1000000))throw new Error('初始筹码须为 1–1,000,000 的整数');
     const profiles=['human',...[1,2,3].map(i=>$('ai-'+i).value||['','maniac','calculator','gambler'][i])];if(A.PROFILES&&profiles.slice(1).some(id=>!A.PROFILES[id]))throw new Error('请选择有效的对手');
-    game=S?S.create({stacks,profiles},Date.now()):new P.Game({stacks,profiles});hydratePlayers();
-  }clearResponse();$('challenge-dialog').close?.();selectedResult=null;game.startHand();game.players.forEach(p=>{if(p.emotion)M.begin(p.emotion);});logCursor=0;syncLog();if(game.hand===1&&L)game.players.forEach((p,i)=>{if(i)appendMessage(L.choose(p.profile,'open',{},[],game.rng),'chat',p.name);});persist();render();schedule();}catch(e){$('status').textContent=e.message;}};
-  $('restart').onclick=()=>{if(game.phase!=='idle'&&!confirm('重新开始四人对战？筹码、聊天记录与对手记忆将重置。'))return;epoch++;clearResponse();$('challenge-dialog').close?.();clearTimeout(timer);window.PokerCompute?.cancel();pendingJob=null;busy=false;paused=false;stage='';displaySeat=null;logCursor=0;unread=0;revealedHand=0;resultShown=0;selectedResult=null;conversation.length=0;for(const key of Object.keys(lastSpeech))delete lastSpeech[key];for(const key of Object.keys(speechMemory))delete speechMemory[key];$('history').replaceChildren();$('latest').hidden=true;game=S?S.create():new P.Game();hydratePlayers();$('talk').textContent='新的一桌，重新选择对手与筹码。';$('hand-result').close?.();coach.setTurn(null);persist();render();};
+    game=S?S.create({stacks,profiles},Date.now()):new P.Game({stacks,profiles});F?.configure(game,A.PROFILES,$('pokerface').checked);hydratePlayers();
+  }clearResponse();$('challenge-dialog').close?.();selectedResult=null;game.startHand();game.players.forEach(p=>{if(p.emotion)M.begin(p.emotion,p.profile);});logCursor=0;syncLog();if(game.hand===1&&L)game.players.forEach((p,i)=>{if(i)appendMessage(safeSpeech(L.choose(p.profile,'open',{},[],game.rng)),'chat',p.name);});persist();render();schedule();}catch(e){$('status').textContent=e.message;}};
+  $('restart').onclick=()=>{if(game.phase!=='idle'&&!confirm('重新开始四人对战？筹码、聊天记录与对手记忆将重置，历史战绩会保留。'))return;F?.reveal(game);if(U)U.abandon(ledger,game);const revealed=F?.mappings(game,A.PROFILES)||[];epoch++;clearResponse();$('challenge-dialog').close?.();clearTimeout(timer);window.PokerCompute?.cancel();pendingJob=null;busy=false;paused=false;stage='';displaySeat=null;logCursor=0;unread=0;revealedHand=0;resultShown=0;selectedResult=null;conversation.length=0;for(const key of Object.keys(lastSpeech))delete lastSpeech[key];for(const key of Object.keys(speechMemory))delete speechMemory[key];$('history').replaceChildren();$('latest').hidden=true;game=S?S.create():new P.Game();hydratePlayers();$('talk').textContent=revealed.length?'上一桌身份揭晓：'+revealed.join('；'):'新的一桌，重新选择对手与筹码。';if(revealed.length)appendMessage('上一桌身份揭晓：'+revealed.join('；'),'system');syncMode();$('hand-result').close?.();coach.setTurn(null);persist();render();};
   $('pause').onclick=()=>{
     if(!paused){paused=true;if(pendingJob){remaining=Math.max(0,deadline-Date.now());clearTimeout(timer);}}
     else {paused=false;if(pendingJob){const job=pendingJob;queue(job,remaining);}else if(restored){restored=false;schedule();}}
@@ -197,8 +207,9 @@
   $('history').onscroll=()=>{const list=$('history'),bottom=list.scrollHeight-list.scrollTop-list.clientHeight<45;$('latest').hidden=bottom;if(bottom)unread=0;};
   $('help').onclick=()=>$('rules').showModal();
   $('result-close').onclick=()=>$('hand-result').close?.();$('view-result').onclick=()=>{if(game.phase==='complete'){resultShown=0;resultDialog();}};
-  if(S&&storage){try{const saved=S.load(storage);if(saved&&saved.game.phase!=='idle'){
-    game=saved.game;hydratePlayers();paused=true;restored=true;logCursor=game.log.length;
+  window.PokerSummaryUI?.mount(()=>ledger,()=>{if(game.phase!=='idle'&&game.phase!=='complete'&&!paused)$('pause').onclick();});
+  if(S&&storage){try{const saved=S.load(storage);if(saved&&U){try{ledger=U.restore(saved.extras.ledger);}catch{ledger=U.create();appendMessage('历史战绩无法读取，从此处重新累计；牌局存档仍可恢复。','system');}}if(saved&&saved.game.phase!=='idle'){
+    game=saved.game;F?.hydrate(game,A.PROFILES);hydratePlayers();$('pokerface').checked=!!game.pokerface?.enabled;syncMode();paused=true;restored=true;logCursor=game.log.length;
     $('pace').value=saved.extras.pace||'standard';$('difficulty').value=saved.extras.difficulty||'pressure';
     Object.assign(lastSpeech,saved.extras.lastSpeech||{});Object.assign(speechMemory,saved.extras.speechMemory||{});resultShown=0;
     for(const entry of saved.extras.conversation||[]){const hand=game.hand;game.hand=entry.hand;appendMessage(entry.text,entry.kind,entry.speaker);game.hand=hand;}

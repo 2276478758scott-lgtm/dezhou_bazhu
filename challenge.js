@@ -12,7 +12,7 @@
     const state=g.challenges?.hand===g.hand?g.challenges:{hand:g.hand,used:0,keys:[]};state.used++;state.keys.push(key(g));g.challenges=state;
     M.provoke(p.emotion||(p.emotion=M.initial()),p.profile);
     const event={seat:0,type:'taunt',targetSeat:target,text:text.trim(),phase:g.phase,hand:g.hand,amount:0,potBefore:g.pot(),betBefore:g.currentBet};g.history.push(event);
-    return {text:event.text,reply,target};
+    const language=typeof module==='object'&&module.exports?require('./language.js'):globalThis.PokerLanguage;const spoken=language?language.choose(p.profile,'call',{emotion:p.emotion},recent,g.rng):reply;return {text:event.text,reply:spoken,target};
   }
   return {presets,key,available,send};
 });

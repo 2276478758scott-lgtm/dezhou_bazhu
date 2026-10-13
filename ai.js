@@ -26,7 +26,7 @@
   }
   // Observation boundary: no deck, no opponent hole cards, no future board.
   function observe(game,i,difficulty='pressure') {
-    return {seat:i,profile:game.players[i].profile,emotion:game.players[i].emotion?{...game.players[i].emotion}:null,history:(game.history||[]).map(a=>({...a})),hole:game.players[i].hole.slice(),board:game.board.slice(),phase:game.phase,hand:game.hand,dealer:game.dealer,bb:game.bb,pot:game.pot(),currentBet:game.currentBet,legal:{...game.legal(i)},difficulty,
+    return {seat:i,profile:game.players[i].profile,emotion:game.players[i].emotion?{...game.players[i].emotion}:null,memory:JSON.parse(JSON.stringify(game.players[i].aiMemory||{reads:{}})),history:(game.history||[]).map(a=>({...a})),hole:game.players[i].hole.slice(),board:game.board.slice(),phase:game.phase,hand:game.hand,dealer:game.dealer,bb:game.bb,bbSeat:game.bbSeat,pot:game.pot(),currentBet:game.currentBet,legal:{...game.legal(i)},difficulty,
       seats:game.players.map((p,j)=>({seat:j,stack:p.stack,bet:p.bet,total:p.total,folded:p.folded,playing:p.hole.length===2,lastAction:p.lastAction,stats:{...p.stats},recentActions:(p.recentActions||[]).map(a=>({...a}))}))};
   }
   function equity(v,rng=Math.random,samples=72) {
@@ -111,27 +111,39 @@
   };
   const emotionAPI=()=>typeof module==='object'&&module.exports?require('./emotion.js'):globalThis.PokerEmotion;
   const ENTRY={maniac:.86,calculator:.65,gambler:.82,professor:.68,rock:.48,trapper:.72,stealer:.80,sniper:.60,catcher:.76,millionaire:.95};
+
+  const STYLE={maniac:{semi:.20,reraise:.32,variance:.55},gambler:{semi:.66,reraise:.10,variance:.75},millionaire:{semi:.30,reraise:.12,variance:1.0},professor:{semi:.24,reraise:.18,variance:.40},calculator:{semi:.12,reraise:.08,variance:.08},trapper:{semi:.20,reraise:.12,variance:.35},sniper:{semi:.16,reraise:.12,variance:.60},rock:{semi:.08,reraise:.10,variance:.30},stealer:{semi:.22,reraise:.16,variance:.35},catcher:{semi:.12,reraise:.06,variance:.25}};
+  function position(v){const active=v.seats.filter(q=>q.playing&&!q.folded&&q.stack>0).map(q=>q.seat),n=v.seats.length,start=v.phase==='preflop'?(v.bbSeat??(v.dealer+2)%n):v.dealer,order=[];for(let j=1;j<=n;j++){const i=(start+j)%n;if(active.includes(i))order.push(i);}const index=order.indexOf(v.seat);const clockwise=active.slice().sort((a,b)=>(a-v.dealer+n)%n-(b-v.dealer+n)%n),cutoff=clockwise[clockwise.length-1];return {index,count:order.length,late:v.phase==='preflop'?v.seat===v.dealer||active.length>2&&v.seat===cutoff:index>=Math.max(1,order.length-2)};}
+  function remember(g,seat,move){const p=g.players[seat];p.aiMemory||={reads:{}};p.aiMemory.hand=g.hand;if(move.reason==='reckless')p.emotion.weakAllinUsed=true;if(move.reason==='trap'||move.reason==='induce')p.aiMemory.plan={kind:'induce',hand:g.hand,phase:g.history.at(-1)?.phase||g.phase};else if(move.type==='raise')p.aiMemory.plan={kind:'pressure',hand:g.hand,phase:g.history.at(-1)?.phase||g.phase};else if(move.type==='fold')p.aiMemory.plan=null;}
+  function learn(g){if(g.phase!=='complete')return;g.players.forEach((p,i)=>{if(!i)return;p.aiMemory||={reads:{}};if(p.aiMemory.learnedHand===g.hand)return;p.aiMemory.learnedHand=g.hand;g.players.forEach((q,j)=>{if(j===i||q.hole.length!==2)return;const read=p.aiMemory.reads[j]||={reveals:0,weakRaises:0};read.reveals++;const raised=g.history.some(a=>a.seat===j&&a.type==='raise'&&a.phase!=='preflop');if(raised&&g.board.length>=3&&P.evaluate([...q.hole,...g.board])[0]===0)read.weakRaises++;});});}
   function texture(v){const suits=[0,0,0,0],ranks=new Set();for(const c of [...v.board,...v.hole]){suits[P.suit(c)]++;ranks.add(P.rank(c));}if(ranks.has(14))ranks.add(1);
     let straightDraw=false;for(let low=1;low<=10;low++){let n=0;for(let r=low;r<low+5;r++)if(ranks.has(r))n++;if(n>=4)straightDraw=true;}
     const boardSuits=[0,0,0,0];v.board.forEach(c=>boardSuits[P.suit(c)]++);
-    return {draw:v.board.length<5&&(suits.some(n=>n===4)||straightDraw),blocker:v.hole.some(c=>P.rank(c)===14||P.rank(c)===13&&boardSuits[P.suit(c)]>=3),wet:boardSuits.some(n=>n>=3)||new Set(v.board.map(P.rank)).size<v.board.length};
+    const flushDraw=suits.some((n,s)=>n===4&&v.hole.some(c=>P.suit(c)===s)&&v.board.filter(c=>P.suit(c)===s).length<4);const boardRanks=new Set(v.board.map(P.rank));if(boardRanks.has(14))boardRanks.add(1);let privateStraight=false;for(let low=1;low<=10;low++){const run=Array.from({length:5},(_,i)=>low+i);if(run.filter(r=>ranks.has(r)).length===4&&v.hole.some(c=>run.includes(P.rank(c))&&!boardRanks.has(P.rank(c))||P.rank(c)===14&&run.includes(1)&&!boardRanks.has(1)))privateStraight=true;}
+    return {draw:v.board.length>=3&&v.board.length<5&&(flushDraw||privateStraight),blocker:v.hole.some(c=>P.rank(c)===14||P.rank(c)===13&&boardSuits[P.suit(c)]>=3),wet:boardSuits.some(n=>n>=3)||new Set(v.board.map(P.rank)).size<v.board.length};
   }
   function strategy(v,eq,profile=PROFILES[v.profile]||PROFILES.calculator,rng=Math.random){
+    profile={...profile};const style=STYLE[v.profile]||STYLE.calculator,phase=emotionAPI()?.stage(v.emotion||{},v.profile),tilting=phase==='tilt',recovering=phase==='recovery';if(tilting){profile.aggression=Math.min(.96,profile.aggression+.15);profile.bluff*=1.55;profile.loose+=v.profile==='gambler'?.16:.12;profile.size*=v.profile==='millionaire'?1.35:1.2;}if(recovering){profile.aggression*=.75;profile.bluff*=.6;profile.loose-=.04;}
     const l=v.legal,p=v.seats[v.seat],os=v.seats.filter(q=>q.seat!==v.seat&&!q.folded&&q.playing),n=os.length;
     const emotion=emotionAPI()?.modifiers(v.profile,v.emotion||undefined)||{aggression:0,loose:0,size:0},t=texture(v);
     const cap=p.total+l.callAmount,contestable=v.seats.reduce((s,q)=>s+Math.min(q.total,cap),0)+l.callAmount,odds=l.callAmount/Math.max(1,contestable);
     const models=os.map(modelOpponent),avg=k=>models.reduce((s,m)=>s+m[k],0)/Math.max(1,n),aggressive=avg('aggression'),foldRate=avg('foldRate');
-    const effective=Math.min(p.stack,Math.max(0,...os.map(q=>q.stack))),spr=effective/Math.max(v.bb,v.pot),late=(v.seat-v.dealer+v.seats.length)%v.seats.length===0;
+    const effective=Math.min(p.stack,Math.max(0,...os.map(q=>q.stack))),spr=effective/Math.max(v.bb,v.pot),late=position(v).late;
     const raises=(v.history||[]).filter(a=>a.type==='raise'),last=raises[raises.length-1],credible=last&&last.amount/Math.max(v.bb,last.potBefore)>.7;
     const playerRaises=last?raisesBySeat(v.history,last.seat):0;
-    const defense=((profile.catch||0)+(v.profile==='professor'?.06:0))*Math.max(0,aggressive-.25)*2;
+    const reveals=os.map(q=>v.memory?.reads?.[q.seat]),observedBluffs=reveals.reduce((n,r)=>n+(r?(r.weakRaises||0)/((r.reveals||0)+4):0),0)/Math.max(1,n);
+    const defense=(v.profile==='professor'?Math.min(.08,observedBluffs*.2):v.profile==='catcher'?(v.emotion?.doubt||0)*.10:0)+((profile.catch||0)+(v.profile==='professor'?.06:0))*Math.max(0,aggressive-.25)*2;
     const value=eq>Math.max(.46,1/(n+1)+.16),margin=(v.profile==='professor'?.025:.04)+(credible&&aggressive<.25?.025:0);
     const strength=preflop(v.hole),preTight=v.phase==='preflop'&&strength<profile.range-(late?.08:0);
-    const foldEquity=Math.max(.05,Math.min(.8,foldRate*(t.wet?.85:1)*(credible?.75:1))),multi=Math.pow(.50,Math.max(0,n-1));
+    // All opponents must fold for a pure bluff to win. An all-in opponent cannot fold.
+    const foldEquity=os.some(q=>q.stack===0)?0:models.reduce((chance,m)=>chance*Math.max(.08,Math.min(.85,(.30+.55*m.foldRate)*(t.wet?.90:1)*(credible?.80:1))),1),multi=Math.pow(.72,Math.max(0,n-1));
+    const continuation=v.profile==='professor'&&v.memory?.plan?.kind==='pressure'&&v.memory.plan.hand===v.hand&&v.memory.plan.phase!==v.phase&&foldRate>.45&&(t.blocker||v.board.some(c=>P.rank(c)>=13));
+    const revenge=v.profile==='maniac'&&os.some(q=>q.seat===v.emotion?.target&&q.stack>0)&&l.toCall>0;
     const difficulty=v.difficulty==='learning'?.65:v.difficulty==='balanced'?.85:1;
-    const bluffChance=profile.bluff*difficulty*multi*(t.blocker?1.4:1)*(late?1.25:1)*(foldRate/.4);
+    const bluffChance=Math.min(.65,profile.bluff*(revenge?1.4:1)*(continuation?1.4:1)*difficulty*multi*(t.blocker?1.25:1)*(late?1.20:1)*Math.max(.45,Math.min(1.5,foldRate/.4))*(1+Math.max(-.5,emotion.aggression*5)));
     const adaptation=v.profile==='professor'?(avg('callRate')>.54?1.18:foldRate>.55?.80:1):1;
-    let bet=Math.max(v.bb,Math.round((v.pot+l.toCall)*profile.size*(1+emotion.size)*adaptation));
+    // Share the same sizing distribution for value and bluffs, rather than announcing hand strength.
+    let bet=Math.max(v.bb,Math.round((v.pot+l.toCall)*profile.size*(v.profile==='calculator'?.60:.45+(1-style.variance)*.20+rng()*style.variance)*(1+emotion.size)*adaptation));
     if(v.phase==='preflop')bet=Math.max(v.bb*2,bet);
     const target=Math.max(l.minRaiseTo,Math.min(l.maxRaiseTo,v.currentBet+bet)),cost=target-p.bet;
     // Conservative EV estimate for the contestable portion; never price another player's side pot as ours.
@@ -139,12 +151,20 @@
     const semiEV=foldEquity*v.pot+(1-foldEquity)*(eq*(contestable+cost)-cost);
     const canRisk=cost<=p.stack*.55||spr<2||v.profile==='millionaire'||v.profile==='maniac';
     let reason='',raise=false;
-    if(l.raise&&!preTight&&value&&rng()<Math.max(0,Math.min(.98,profile.aggression+emotion.aggression))*difficulty){raise=true;reason='value';}
+    const weak=eq<Math.max(.46,1/(n+1)+.16),recklessRate=v.profile==='maniac'?.10:v.profile==='millionaire'?.05:v.profile==='gambler'&&t.draw?.10:0;
+    if(tilting&&weak&&!v.emotion?.weakAllinUsed&&l.raise&&os.some(q=>q.stack>0)&&rng()<recklessRate)return {type:'raise',target:l.maxRaiseTo,reason:'reckless',eq,odds};
+    if(v.profile==='trapper'&&v.phase!=='preflop'&&eq>.68&&rng()<.65){if(!l.toCall&&l.check)return {type:'check',reason:'induce',eq,odds};if(l.toCall&&v.memory?.plan?.kind==='induce'&&v.memory.plan.hand===v.hand&&l.raise)return {type:'raise',target,reason:'value',eq,odds};if(l.call&&eq>=odds+.08)return {type:'call',reason:'induce',eq,odds};}
+    if(v.profile==='sniper'&&weak&&!t.blocker&&!t.draw){if(l.check)return {type:'check',reason:'wait',eq,odds};if(eq+profile.loose<odds+.10)return {type:'fold',reason:'wait',eq,odds};}
+    if(v.profile==='maniac'&&revenge&&l.raise&&canRisk&&rng()<style.reraise*(tilting?1.8:1))return {type:'raise',target,reason:weak?'bluff':'value',eq,odds};
+    if(l.raise&&!preTight&&value&&rng()<Math.max(0,Math.min(.94,profile.aggression+emotion.aggression))*difficulty){raise=true;reason='value';}
     if(l.raise&&!raise&&v.phase==='preflop'&&!raises.length&&strength>=Math.max(.66,profile.range+.15)&&rng()<profile.aggression*.70){raise=true;reason='value';}
     if(raise&&profile.trap&&eq>.68&&!l.toCall&&rng()<profile.trap){raise=false;reason='trap';}
-    if(l.raise&&!raise&&canRisk&&l.callAmount<p.stack*.4&&!preTight&&rng()<bluffChance&&(bluffEV>0||v.profile!=='professor'&&t.blocker&&foldEquity>.35)){raise=true;reason='bluff';}
-    if(l.raise&&!raise&&t.draw&&semiEV>0&&rng()<(v.profile==='gambler'?.48:.18)*difficulty){raise=true;reason='semi';}
-    if(l.raise&&!raise&&profile.steal&&late&&!raises.length&&rng()<profile.steal&&foldEquity>.25){raise=true;reason='steal';}
+    const reactive=['maniac','gambler','millionaire'].includes(v.profile),tilt=Math.max(0,v.emotion?.frustration||0);
+    const riskBudget=reactive?cost*(.18+.38*tilt+(tilting?.20:0)):0;
+    const bluffRange=v.phase!=='preflop'||!preTight||(late&&!credible&&raises.length<=1);
+    if(l.raise&&!raise&&!value&&foldEquity>0&&canRisk&&l.callAmount<p.stack*.4&&bluffRange&&bluffEV>=-riskBudget&&rng()<bluffChance){raise=true;reason='bluff';}
+    if(l.raise&&!raise&&t.draw&&semiEV>0&&rng()<style.semi*(tilting?1.2:1)*difficulty){raise=true;reason='semi';}
+    if(l.raise&&!raise&&profile.steal&&late&&!raises.some(a=>a.phase===v.phase&&a.seat!==v.seat)&&rng()<profile.steal&&foldEquity>.25){raise=true;reason='steal';}
     if(raise){let amount=target;if(reason==='value'&&eq>.75&&spr<2.2)amount=l.maxRaiseTo;return {type:'raise',target:amount,reason,eq,odds};}
     if(l.check)return {type:'check',reason:reason||'free',eq,odds};
     // Preflop equity against every seated player is not an immediate all-in price.
@@ -153,11 +173,11 @@
     const entryFloor=Math.max(.32,profile.range-.07-(late?.04:0));
     if(cheapEntry&&strength>=entryFloor&&eq+profile.loose>=.15&&rng()<(ENTRY[v.profile]??.65)*(raises.length?.55:1))return {type:'call',reason:'entry',eq,odds};
     const estimate=eq+profile.loose+emotion.loose+defense;
-    if(!preTight&&estimate>=odds+margin+(v.profile==='professor'&&playerRaises>1&&aggressive<.25?.035:0))return {type:'call',reason:defense>.025?'catch':'price',eq,odds};
+    if(!preTight&&estimate>=odds+margin+(v.profile==='rock'?.025:0)+(v.profile==='professor'&&playerRaises>1&&aggressive<.25?.035:0))return {type:'call',reason:defense>.025?'catch':'price',eq,odds};
     return {type:'fold',reason:'price',eq,odds};
   }
   function raisesBySeat(history,seat){return (history||[]).filter(a=>a.seat===seat&&a.type==='raise').length;}
   function decide(v,profileOrRng=Math.random,emotion=null,rng=Math.random){const random=typeof profileOrRng==='function'?profileOrRng:rng,profile=typeof profileOrRng==='object'?profileOrRng:PROFILES[v.profile]||PROFILES.calculator;
     const view=emotion?{...v,emotion}:v;return strategy(view,equity(view,random,v.profile==='professor'?192:72),profile,random);}
-  return {profiles,PROFILES,ENTRY,preflop,observe,equity,decideWithEquity,decide,strategy,texture,modelOpponent};
+  return {profiles,PROFILES,STYLE,position,remember,learn,ENTRY,preflop,observe,equity,decideWithEquity,decide,strategy,texture,modelOpponent};
 });
