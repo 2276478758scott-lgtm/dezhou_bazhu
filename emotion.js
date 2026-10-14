@@ -1,7 +1,12 @@
 (function(r,f){const a=f();if(typeof module==='object'&&module.exports)module.exports=a;else r.PokerEmotion=a;})(globalThis,()=>{
   'use strict';const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
-  const weights={maniac:[.85,.80],calculator:[.10,.35],gambler:[.65,.70],professor:[.08,.30],rock:[.20,.45],trapper:[.30,.50],stealer:[.40,.55],sniper:[.25,.45],catcher:[.45,.60],millionaire:[.75,.75]};
+  const weights={chameleon:[.4,.6],mirror:[.45,.6],comeback:[.22,.5],collector:[.30,.5],neymar:[.5,.6],maniac:[.85,.80],calculator:[.10,.35],gambler:[.65,.70],professor:[.08,.30],rock:[.20,.45],trapper:[.30,.50],stealer:[.40,.55],sniper:[.25,.45],catcher:[.45,.60],millionaire:[.75,.75]};
   const reactions={
+    chameleon:{pressure:.9,frustration:.7,confidence:.8,focus:.8,p:.27,f:.30,high:.63,low:.37,pressureWord:'琢磨中',frustrationWord:'换个节奏',confidenceWord:'来劲',focusWord:'观察'},
+    mirror:{pressure:.9,frustration:.8,confidence:.9,focus:.9,p:.27,f:.30,high:.63,low:.37,pressureWord:'较劲',frustrationWord:'不服',confidenceWord:'来劲',focusWord:'观察'},
+    comeback:{pressure:.6,frustration:.4,confidence:.8,focus:1.3,p:.30,f:.35,high:.64,low:.36,pressureWord:'稳住',frustrationWord:'蓄力',confidenceWord:'振奋',focusWord:'专注'},
+    collector:{pressure:.85,frustration:.65,confidence:.85,focus:1,p:.28,f:.32,high:.63,low:.37,pressureWord:'掂量',frustrationWord:'遗憾',confidenceWord:'期待',focusWord:'等待'},
+    neymar:{pressure:1,frustration:.9,confidence:1,focus:.65,p:.18,f:.30,high:.62,low:.38,pressureWord:'紧张',frustrationWord:'不服',confidenceWord:'兴奋',focusWord:'盯着'},
     maniac:{pressure:1.10,frustration:1.25,confidence:1.10,focus:.25,p:.22,f:.20,high:.60,low:.40,pressureWord:'躁动',frustrationWord:'不甘',confidenceWord:'兴奋',focusWord:'较劲'},
     calculator:{pressure:.85,frustration:.30,confidence:.55,focus:1.20,p:.32,f:.40,high:.66,low:.34,pressureWord:'计算中',frustrationWord:'复盘中',confidenceWord:'自信',focusWord:'计算中'},
     gambler:{pressure:.90,frustration:1.0,confidence:1.20,focus:.35,p:.18,f:.23,high:.60,low:.40,pressureWord:'紧张',frustrationWord:'不服',confidenceWord:'兴奋',focusWord:'跃跃欲试'},
@@ -51,7 +56,7 @@
     m.frustration=clamp(m.frustration*decay+(net<0?(.055+size*(.30+.35*expected)+Math.max(0,-m.streak-1)*.018)*reaction*diminishing*c.frustration:-size*.22));
     m.confidence=clamp(.5+(m.confidence-.5)*decay+Math.sign(net)*(.04+size*.30)*reaction*diminishing*c.confidence);m.pressure=clamp(m.pressure*decay);m.focus=clamp((m.focus||0)*decay+(net<0?Math.min(.25,size)*c.focus:0));m.doubt=clamp((m.doubt||0)*decay);if(net<0)trigger(m,profile,size>=.2?'loss':m.streak<-1?'streak':'loss');else if(net>0)trigger(m,profile,'success');if(recovering){m.recoveryLeft=Math.max(0,(m.recoveryLeft||1)-1);if(!m.recoveryLeft){m.frustration=Math.min(.3,m.frustration);m.stage='calm';m.tiltHands=0;}}else if(m.stage==='tilt'){m.tiltHands=(m.tiltHands||0)+1;if(m.tiltHands>=2){m.stage='recovery';m.recoveryLeft=1;trigger(m,profile,'recovery');}}return s;
   }
-  function modifiers(profile,m=initial()){const s=(weights[profile]||[.2])[0],tilt=m.frustration,confidence=m.confidence-.5,guard=['rock','calculator','professor','sniper'].includes(profile),cautious=guard?m.pressure*.5:0;
+  function modifiers(profile,m=initial()){const s=(weights[profile]||[.2])[0],tilt=m.frustration,confidence=m.confidence-.5,guard=['rock','calculator','professor','sniper','comeback'].includes(profile),cautious=guard?m.pressure*.5:0;
     const patience=profile==='trapper'?(m.focus||0)*.03:0,doubt=profile==='catcher'?(m.doubt||0)*.05:0;
     return {aggression:clamp((guard?-tilt:tilt)*.12+confidence*.12-cautious*.08-patience,-.12,.12)*s,loose:clamp((guard?-tilt:tilt)*.06+confidence*.04-cautious*.04+doubt,-.06,.06)*s,size:clamp((guard?-tilt:tilt)*.2+confidence*.2-cautious*.1,-.2,.2)*s};}
   function label(m=initial(),profile='calculator'){
@@ -69,3 +74,4 @@
   }
   return {weights,reactions,config,initial,begin,action,finish,modifiers,label,provoke,stage,trigger};
 });
+

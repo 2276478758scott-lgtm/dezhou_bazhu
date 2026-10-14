@@ -1,5 +1,5 @@
 'use strict';
-const CACHE='dezhou-bazhu-pwa-v10',FILES=['./','index.html','style.css','core.js','emotion.js','state.js','ai.js','dialogue-data.js','experience.js','language.js','compute.js','helper.js','challenge.js','summary.js','summary-ui.js','pokerface.js','worker.js','app.js','pwa.js','mobile.js','manifest.webmanifest','icon-192.png','icon-512.png'];
+const CACHE='dezhou-bazhu-pwa-v14',FILES=['./','index.html','style.css','kernel.js','storage.js','core.js','emotion.js','state.js','ai.js','strategy.js','dialogue-data.js','experience.js','language.js','compute.js','helper.js','challenge.js','summary.js','summary-ui.js','pokerface.js','worker.js','career.js','career-ui.js','analytics.js','review-ui.js','app.js','pwa.js','mobile.js','manifest.webmanifest','icon-192.png','icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('dezhou-bazhu-pwa-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('message',e=>{if(e.data==='activate')self.skipWaiting();});

@@ -1,11 +1,11 @@
-(function(r,f){const a=f(typeof module==='object'&&module.exports?require('./core.js'):r.Poker);if(typeof module==='object'&&module.exports)module.exports=a;else r.PokerState=a;})(globalThis,P=>{
-  'use strict';const VERSION=2,KEY='dezhou-bazhu-local-v2';
+(function(r,f){const a=f(typeof module==='object'&&module.exports?require('./core.js'):r.Poker,typeof module==='object'&&module.exports?require('./kernel.js'):r.PokerKernel);if(typeof module==='object'&&module.exports)module.exports=a;else r.PokerState=a;})(globalThis,(P,K)=>{
+  'use strict';const VERSION=3,KEY='dezhou-bazhu-local-v2';
   function random(seed){let value=seed>>>0;const fn=()=>{value=(Math.imul(value,1664525)+1013904223)>>>0;return value/4294967296;};Object.defineProperty(fn,'state',{get:()=>value});return fn;}
-  function create(options={},seed=Date.now()){return new P.Game({...options,rng:random(seed)});}
-  function snapshot(game,extras={}){const copy={};for(const [key,value] of Object.entries(game))if(key!=='rng')copy[key]=key==='pending'?[...value]:value;
-    return JSON.parse(JSON.stringify({version:VERSION,game:copy,seed:game.rng.state??1,extras}));}
+  function create(options={},seed=Date.now()){return new P.Game({...options,seed});}
+  function snapshot(game,extras={}){const copy={};for(const [key,value] of Object.entries(game))if(key!=='rng'&&key!=='random')copy[key]=key==='pending'?[...value]:value;
+    return JSON.parse(JSON.stringify({version:VERSION,game:copy,seed:game.rng.state??1,streams:K.states(game),extras}));}
   function restore(data){
-    if(data?.version!==VERSION||!data.game||!Number.isInteger(data.seed))throw new Error('存档版本或结构无效');const x=data.game;
+    if(![2,VERSION].includes(data?.version)||!data.game||(!Number.isInteger(data.seed)||data.seed<0||data.seed>4294967295))throw new Error('存档版本或结构无效');const x=K.clone(data.game);
     if(!Array.isArray(x.players)||x.players.length!==4||!Array.isArray(x.pending)||!Array.isArray(x.history)||!Array.isArray(x.log)||!['idle','preflop','flop','turn','river','complete'].includes(x.phase))throw new Error('存档牌桌无效');
     const integer=n=>Number.isSafeInteger(n)&&n>=0;
     for(const p of x.players){if(!integer(p.stack)||!integer(p.total)||!integer(p.bet)||p.bet>p.total||!integer(p.lastContribution)||!Array.isArray(p.hole)||![0,2].includes(p.hole.length)||typeof p.folded!=='boolean')throw new Error('存档筹码或底牌无效');
@@ -13,7 +13,7 @@
       if(p.emotion&&['frustration','confidence','pressure','focus','doubt'].some(k=>p.emotion[k]!==undefined&&(!Number.isFinite(p.emotion[k])||p.emotion[k]<0||p.emotion[k]>1)))throw new Error('存档情绪无效');}
     if(x.pokerface){const f=x.pokerface;if(typeof f.enabled!=='boolean'||typeof f.revealed!=='boolean'||f.enabled&&(!Array.isArray(f.aliases)||f.aliases.length!==4||f.aliases[0]!=='你'||new Set(f.aliases).size!==4||f.aliases.some(n=>typeof n!=='string'||n.length>20)))throw new Error('隐藏身份存档无效');}
     for(const p of x.players){const m=p.emotion;if(m?.stage&&!['calm','agitated','tilt','recovery'].includes(m.stage))throw new Error('情绪阶段无效');if(m){for(const k of ['tiltHands','recoveryLeft','reactionSerial','spokenSerial'])if(m[k]!==undefined&&!integer(m[k]))throw new Error('情绪计数无效');if((m.tiltHands||0)>2||(m.recoveryLeft||0)>1||(m.spokenSerial||0)>(m.reactionSerial||0)||m.weakAllinUsed!==undefined&&typeof m.weakAllinUsed!=='boolean')throw new Error('情绪阶段计数无效');}
-      const memory=p.aiMemory;if(memory){if(!memory.reads||typeof memory.reads!=='object'||Array.isArray(memory.reads))throw new Error('行动记忆无效');for(const [seat,read]of Object.entries(memory.reads))if(!/^\d+$/.test(seat)||Number(seat)>3||!read||!integer(read.reveals)||!integer(read.weakRaises)||read.weakRaises>read.reveals)throw new Error('公开观察记忆无效');if(memory.plan&&(!['induce','pressure'].includes(memory.plan.kind)||!integer(memory.plan.hand)||memory.plan.hand>x.hand||!['preflop','flop','turn','river'].includes(memory.plan.phase)))throw new Error('行动计划无效');}}
+      const memory=p.aiMemory;if(memory){if(!memory.reads||typeof memory.reads!=='object'||Array.isArray(memory.reads))throw new Error('行动记忆无效');for(const [seat,read]of Object.entries(memory.reads))if(!/^\d+$/.test(seat)||Number(seat)>3||!read||!integer(read.reveals)||!integer(read.weakRaises)||read.weakRaises>read.reveals)throw new Error('公开观察记忆无效');if(memory.plan&&(!['induce','pressure','protect','retreat'].includes(memory.plan.kind)||!integer(memory.plan.hand)||memory.plan.hand>x.hand||!['preflop','flop','turn','river'].includes(memory.plan.phase)))throw new Error('行动计划无效');}}
     const cards=[...(x.deck||[]),...(x.board||[]),...x.players.flatMap(p=>p.hole)];if(cards.some(c=>!Number.isInteger(c)||c<0||c>51)||new Set(cards).size!==cards.length)throw new Error('存档有重复或非法牌');
     if(!integer(x.totalChips)||x.players.reduce((s,p)=>s+p.stack+(x.phase==='complete'?0:p.total),0)!==x.totalChips)throw new Error('存档筹码不守恒');
     if(!Array.isArray(x.pending)||new Set(x.pending).size!==x.pending.length||x.pending.some(i=>!Number.isInteger(i)||!x.players[i]||x.players[i].folded||x.players[i].stack===0))throw new Error('存档行动集合无效');
@@ -23,12 +23,20 @@
     if(x.challenges){const c=x.challenges;if(!integer(c.hand)||c.hand>x.hand||!integer(c.used)||c.used>2||!Array.isArray(c.keys)||c.keys.length!==c.used||new Set(c.keys).size!==c.keys.length||c.keys.some(k=>typeof k!=='string'||k.length>80))throw new Error('存档喊话额度无效');}
     if(!['idle','complete'].includes(x.phase)&&x.players.some(p=>p.bet>x.currentBet))throw new Error('存档下注额度不一致');
     if(x.phase==='complete'){
-      const expected=P.settle(x.players,x.board,x.dealer);if(JSON.stringify(expected.awards)!==JSON.stringify(x.result?.awards)||JSON.stringify(expected.hands)!==JSON.stringify(x.result?.hands)||JSON.stringify(expected.pots)!==JSON.stringify(x.result?.pots)||expected.kind!==x.result?.kind||!Array.isArray(x.handStart)||x.handStart.length!==4||x.handStart.some(n=>!integer(n))||JSON.stringify(x.players.map((p,i)=>p.stack-x.handStart[i]))!==JSON.stringify(x.result.net))throw new Error('存档结算不一致');
+      const expected=P.settle(x.players,x.board,x.dealer);if(JSON.stringify(expected.scores)!==JSON.stringify(x.result?.scores)||JSON.stringify(expected.awards)!==JSON.stringify(x.result?.awards)||JSON.stringify(expected.hands)!==JSON.stringify(x.result?.hands)||JSON.stringify(expected.pots)!==JSON.stringify(x.result?.pots)||expected.kind!==x.result?.kind||!Array.isArray(x.handStart)||x.handStart.length!==4||x.handStart.some(n=>!integer(n))||JSON.stringify(x.players.map((p,i)=>p.stack-x.handStart[i]))!==JSON.stringify(x.result.net))throw new Error('存档结算不一致');
     }
+    x.mode??='quick';if(!['quick','tournament','grandprix'].includes(x.mode))throw Error('游戏模式无效');const match=x.match;if(match){if(match.mode!==x.mode||x.mode==='quick'||!integer(match.baseSB)||match.baseSB<1||!integer(match.buyIn)||match.buyIn<1||match.pool!==match.buyIn*4||match.pool!==x.totalChips||typeof match.finalized!=='boolean'||!integer(match.processedHand)||match.processedHand>x.hand||!['playing','won','lost','withdrawn'].includes(match.status)||match.finalized!==(match.status!=='playing')||x.mode==='tournament'&&(!integer(match.index)||match.index>3||typeof match.runId!=='string'))throw Error('赛事牌桌无效');if(match.finalized&&(x.phase!=='complete'||match.status==='won'&&(x.players[0].stack===0||x.players.filter(p=>p.stack>0).length!==1)||match.status==='lost'&&x.players[0].stack!==0))throw Error('赛事结束状态无效');}else if(x.mode!=='quick')throw Error('缺少赛事牌桌状态');
+    for(const p of x.players){const skin=p.aiMemory?.skin;if(skin&&(!['pressure','value','induce'].includes(skin.kind)||!integer(skin.left)||skin.left>3))throw Error('角色风格存档无效');}
     const extras=data.extras||{};if(extras.conversation&&(!Array.isArray(extras.conversation)||extras.conversation.some(e=>!e||typeof e.text!=='string'||!integer(e.hand))))throw new Error('存档聊天无效');
-    const game=new P.Game({stacks:x.players.map(p=>p.stack),smallBlind:x.sb,bigBlind:x.bb});Object.assign(game,x);game.pending=new Set(x.pending);game.rng=random(data.seed);return {game,extras:data.extras||{}};
+    const game=new P.Game({stacks:x.players.map(p=>p.stack),smallBlind:x.sb,bigBlind:x.bb});Object.assign(game,x);game.pending=new Set(x.pending);game.random=K.streams(data.seed,data.streams);if(data.version===2){game.random.deal=K.random(data.seed);game.events=[];game.eventSeq=0;game.historyPartial=true;game.tableId=x.tableId||game.tableId;}else{if(!data.streams||K.STREAMS.some(k=>!Number.isInteger(data.streams[k])||data.streams[k]<0||data.streams[k]>4294967295)||data.seed!==data.streams.deal)throw Error('随机序列存档无效');}game.rng=game.random.deal;
+    if(!Number.isSafeInteger(x.sb)||x.sb<=0||!Number.isSafeInteger(x.bb)||x.bb<x.sb||!Number.isInteger(x.dealer)||x.dealer< -1||x.dealer>=4)throw Error('存档盲注或按钮无效');
+    if(!['idle','complete'].includes(x.phase)&&(!Number.isInteger(x.sbSeat)||!Number.isInteger(x.bbSeat)||!game.players[x.sbSeat]||!game.players[x.bbSeat]||x.sbSeat===x.bbSeat||x.minRaise<=0))throw Error('存档盲注座位无效');
+    if(x.hand>0&&(!Array.isArray(x.handStart)||x.handStart.length!==4||x.handStart.some(n=>!integer(n))||x.players.some((p,i)=>p.stack+p.total-(x.phase==='complete'?x.result.awards[i]:0)!==x.handStart[i])))throw Error('存档本手筹码不一致');
+    K.validateEvents(game);P.invariant(game);return {game,extras:data.extras||{}};
   }
-  function save(storage,game,extras){storage.setItem(KEY,JSON.stringify(snapshot(game,extras)));}
-  function load(storage){const raw=storage.getItem(KEY);return raw?restore(JSON.parse(raw)):null;}
-  return {VERSION,KEY,random,create,snapshot,restore,save,load};
+  let revision=0;function adopt(data){revision=Math.max(revision,data?.revision||0);return data;}function stamp(data){data.revision=revision=Math.max(Date.now()*1000,revision+1);return data;}
+  function save(storage,game,extras){const old=storage.getItem(KEY);if(old){try{if(JSON.parse(old).version===2&&!storage.getItem(KEY+'-backup-v2'))storage.setItem(KEY+'-backup-v2',old);}catch(error){if(error.name==='QuotaExceededError')throw error;}}storage.setItem(KEY,JSON.stringify(stamp(snapshot(game,extras))));}
+  function load(storage){const raw=storage.getItem(KEY);return raw?restore(adopt(JSON.parse(raw))):null;}
+  return {VERSION,KEY,stamp,adopt,random,create,snapshot,restore,save,load};
 });
+

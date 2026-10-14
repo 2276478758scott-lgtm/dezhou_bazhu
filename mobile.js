@@ -8,5 +8,6 @@
   for(const kind of Object.keys(sections))$('mobile-'+kind).onclick=()=>open(kind);
   $('mobile-panel-close').onclick=close;dialog.addEventListener('cancel',close);dialog.addEventListener('close',()=>{if(!dialog.open)restore();});media.addEventListener('change',close);
   $('mobile-start').onclick=()=>{const start=current==='settings'&&!$('setup').hidden;close();if(start)$('next').click();};
-  if(media.matches&&!$('setup').hidden)open('settings');
+  function ready(){if(media.matches&&!$('setup').hidden)open('settings');}
+  if(window.PokerReady)ready();else window.addEventListener('poker-ready',ready,{once:true});
 })();
