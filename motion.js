@@ -19,11 +19,12 @@
    return out;
   }};
  }
- function mount({formatAmount=String}={}){
+ function deliverCue(callback,cue){try{if(!callback)return false;callback(cue);return true;}catch{return false;}}
+ function mount({formatAmount=String,onCue}={}){
   if(typeof document==='undefined'||!document.querySelector)return null;
   const stage=document.querySelector('.board-stage');if(!stage)return null;
   const layer=document.createElement('div');layer.className='motion-layer';layer.setAttribute('aria-hidden','true');stage.append(layer);
-  const deck=document.createElement('div');deck.className='motion-deck';deck.setAttribute('aria-hidden','true');deck.textContent='◆';layer.append(deck);
+  const deck=document.getElementById('table-deck');if(!deck){layer.remove();return null;}
   const cursor=createCursor(),feedback=window.PokerFeedback?.createCursor(),reduced=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion: reduce)'):null;
   let preference='full',queue=[],running=false,generation=0,table=null,hand=null,drain=Promise.resolve(),targetPot=0,paintedPot=0,potBlind=20;
   const potArea=document.getElementById('pot-chips');
@@ -39,11 +40,11 @@
   function clearNode(node){node?.remove();visuals.delete(node);}
   function animate(node,keyframes,options){
    if(!node?.animate)return Promise.resolve();
-   return new Promise(resolve=>{let animation,guard,ended=false;const done=()=>{if(ended)return;ended=true;clearTimeout(guard);active.delete(job);try{animation?.cancel();}catch{}resolve();};const job={cancel:done};
+   return new Promise(resolve=>{let animation,guard,ended=false;const done=()=>{if(ended)return;ended=true;clearTimeout(guard);active.delete(job);try{animation?.cancel();}catch{}resolve();};const job={node,cancel:done};
     active.add(job);try{animation=node.animate(keyframes,{easing:'cubic-bezier(.22,.75,.25,1)',...options,fill:'both'});animation.finished.then(done,done);guard=setTimeout(done,(options.delay||0)+(options.duration||0)+100);}catch{done();}
    });
   }
-  function finish(){generation++;queue=[];running=false;for(const job of [...active])job.cancel();for(const node of [...hidden])reveal(node);for(const node of [...visuals])clearNode(node);emotionNodes.clear();deck.classList.remove('visible');stage.classList.remove('motion-runout');paintPot(targetPot);paintMode();window.PokerTableUI?.scheduleLayout();}
+  function finish({keepEmotions=false}={}){generation++;queue=[];running=false;for(const job of [...active])if(!keepEmotions||!job.node?.closest('.motion-emotion'))job.cancel();for(const node of [...hidden])reveal(node);for(const node of [...visuals])if(!keepEmotions||!node.classList.contains('motion-emotion'))clearNode(node);if(!keepEmotions)emotionNodes.clear();deck.classList.remove('visible');stage.classList.remove('motion-runout');paintPot(targetPot);paintMode();window.PokerTableUI?.scheduleLayout();}
   function center(node){if(!node)return null;const box=node.getBoundingClientRect(),bounds=stage.getBoundingClientRect();if(!box.width||!box.height)return null;return {x:box.left-bounds.left+box.width/2,y:box.top-bounds.top+box.height/2,box};}
   async function actionFeedback(accent){
    if(!accent)return;const seat=document.getElementById('seat-'+accent.seat),info=seat?.querySelector('.seat-info');if(!info)return;feedbackCounts.actions++;
@@ -62,13 +63,14 @@
   }
   async function emotionFeedback(reaction){
    const seat=document.getElementById('seat-'+reaction.seat);if(!seat)return;
-   const old=emotionNodes.get(reaction.seat);if(old&&old.intensity>=reaction.intensity&&Date.now()-old.at<950)return;if(old)clearNode(old.node);
-   if(emotionNodes.size>=2&&!old){const [key,value]=emotionNodes.entries().next().value;clearNode(value.node);emotionNodes.delete(key);}
+   const old=emotionNodes.get(reaction.seat);if(old&&Date.now()-old.at<2400)return;if(old)clearNode(old.node);
+   // Give existing reactions time to be read instead of evicting them on every action.
+   if(emotionNodes.size>=2&&!old)return;
    const node=transient('motion-emotion');node.setAttribute('data-kind',reaction.kind);node.setAttribute('data-seat',reaction.seat);node.setAttribute('data-emotion',reaction.label);
    const simple=mode()==='simple',emoji=reaction.emoji.slice(0,simple?1:innerHeight<=500?3:4);for(const text of emoji){const span=document.createElement('span');span.textContent=text;node.append(span);}
    if(!window.PokerTableUI.placeBeside(node,seat)){node.classList.add('compact');if(!window.PokerTableUI.placeBeside(node,seat)){clearNode(node);return;}}
    feedbackCounts.emotions++;emotionNodes.set(reaction.seat,{node,intensity:reaction.intensity,at:Date.now()});
-   const tasks=[...node.children].map((span,i)=>animate(span,simple?[{opacity:0},{offset:.2,opacity:1},{offset:.8,opacity:1},{opacity:0}]:[{opacity:0,transform:'scale(.35) rotate(-10deg)'},{offset:.2,opacity:1,transform:'scale(1.22) rotate(6deg)'},{offset:.4,transform:'scale(1) rotate(0deg)'},{offset:.8,opacity:1,transform:'scale(1)'},{opacity:0,transform:'translateY(-8px) scale(.95)'}],{duration:simple?500:800,delay:simple?0:i*30}));
+   const tasks=[...node.children].map((span,i)=>animate(span,simple?[{opacity:0},{offset:.08,opacity:1},{offset:.88,opacity:1},{opacity:0}]:[{opacity:0,transform:'scale(.35) rotate(-10deg)'},{offset:.06,opacity:1,transform:'scale(1.2) rotate(6deg)'},{offset:.12,transform:'scale(1) rotate(0deg)'},{offset:.88,opacity:1,transform:'scale(1)'},{opacity:0,transform:'translateY(-8px) scale(.95)'}],{duration:simple?2600:3000,delay:simple?0:i*70}));
    if(!simple&&reaction.kind==='anger')tasks.push(animate(seat.querySelector('.seat-avatar'),[{transform:'rotate(0)'},{offset:.2,transform:'rotate(-8deg) scale(1.12)'},{offset:.4,transform:'rotate(8deg) scale(1.12)'},{offset:.6,transform:'rotate(-4deg)'},{transform:'rotate(0) scale(1)'}],{duration:350}));
    await Promise.all(tasks);clearNode(node);if(emotionNodes.get(reaction.seat)?.node===node)emotionNodes.delete(reaction.seat);
   }
@@ -78,19 +80,28 @@
    const simple=mode()==='simple';deck.classList.add('visible');const origin=center(deck);if(!origin)return;
    await Promise.all(effect.cards.map(async({seat,index},order)=>{
     const target=cardAt(seat,index),end=center(target);if(!end)return;
-    if(simple){reveal(target);await animate(target,[{opacity:0},{opacity:1}],{duration:120,delay:order*30});if(token===generation)reveal(target);return;}
+    if(simple){reveal(target);await animate(target,[{opacity:0},{opacity:1}],{duration:180,delay:order*60});if(token===generation){reveal(target);deliverCue(onCue,{id:effect.id+':'+seat+':'+index,kind:'deal',scope:'table'});}return;}
     const node=transient('motion-card');node.textContent='◆';node.style.width=target.offsetWidth+'px';node.style.height=target.offsetHeight+'px';node.style.left=end.x+'px';node.style.top=end.y+'px';
-    const angle=index?9:-7;await animate(node,[{transform:`translate(-50%,-50%) translate(${origin.x-end.x}px,${origin.y-end.y}px) rotate(-15deg) scale(.65)`,opacity:0},{offset:.12,opacity:1},{transform:`translate(-50%,-50%) rotate(${angle}deg) scale(1)`,opacity:1}],{duration:300,delay:order*70});
-    clearNode(node);if(token===generation)reveal(target);
+    const angle=index?9:-7;await animate(node,[{transform:`translate(-50%,-50%) translate(${origin.x-end.x}px,${origin.y-end.y}px) rotate(-7deg) scale(.65)`,opacity:0},{offset:.1,opacity:1},{transform:`translate(-50%,-50%) rotate(${angle}deg) scale(1)`,opacity:1}],{duration:620,delay:order*180});
+    clearNode(node);if(token===generation){reveal(target);deliverCue(onCue,{id:effect.id+':'+seat+':'+index,kind:'deal',scope:'table'});}
    }));
    if(token===generation)deck.classList.remove('visible');
   }
   async function community(effect,token){
+   deck.classList.add('visible');
    await Promise.all(effect.indexes.map(async(index,i)=>{const target=document.getElementById('board')?.children[index];if(!target)return;
-    // WAAPI starts in the same task as unmasking; there is no frame exposing the final face early.
-    reveal(target);await animate(target,mode()==='simple'?[{opacity:0},{opacity:1}]:[{transform:'perspective(500px) rotateY(-90deg) scale(.94)',opacity:.25},{transform:'perspective(500px) rotateY(0deg) scale(1)',opacity:1}],{duration:mode()==='simple'?120:300,delay:i*(mode()==='simple'?25:75)});
-    if(token===generation)reveal(target);
+    const simple=mode()==='simple';
+    if(!simple){
+     const origin=center(deck),end=center(target);if(origin&&end){const node=transient('motion-card motion-community');node.textContent='◆';node.style.width=target.offsetWidth+'px';node.style.height=target.offsetHeight+'px';node.style.left=end.x+'px';node.style.top=end.y+'px';
+      await animate(node,[{transform:`translate(-50%,-50%) translate(${origin.x-end.x}px,${origin.y-end.y}px) rotate(-7deg) scale(.65)`,opacity:0},{offset:.1,opacity:1},{transform:'translate(-50%,-50%) rotate(0deg) scale(1)',opacity:1}],{duration:550,delay:i*150});clearNode(node);
+     }
+    }
+    if(token!==generation)return;
+    // The final face is revealed only after the facedown flight reaches its slot.
+    reveal(target);await animate(target,simple?[{opacity:0},{opacity:1}]:[{transform:'perspective(500px) rotateY(-90deg) scale(.94)',opacity:.25},{transform:'perspective(500px) rotateY(0deg) scale(1)',opacity:1}],{duration:simple?220:450,delay:simple?i*60:0});
+    if(token===generation){reveal(target);deliverCue(onCue,{id:effect.id+':board:'+index,kind:'card-place',scope:'table'});}
    }));
+   if(token===generation)deck.classList.remove('visible');
   }
   const tokenSvg='<svg viewBox="0 0 40 32" focusable="false"><path d="M3 14h34v4a17 11 0 0 1-34 0Z" fill="#1a5893"/><g transform="translate(20 14) scale(1 .7)"><circle r="17" fill="#358bd7" stroke="#1a5893"/><g fill="#fff5df">'+Array.from({length:6},(_,i)=>'<rect x="-2.7" y="-16.5" width="5.4" height="5.5" rx=".5" transform="rotate('+i*60+')"/>').join('')+'<circle r="10" fill="#358bd7" stroke="#fff5df" stroke-width="1"/></g></g></svg>';
   async function bet(effect,token){
@@ -128,7 +139,8 @@
    targetPot=game.phase==='complete'?game.result.pots.filter(p=>!p.refund).reduce((n,p)=>n+p.amount,0):game.pot();potBlind=game.bb;
    if(table!==state.tableId||hand!==state.hand){finish();table=state.tableId;hand=state.hand;}
    const effects=cursor.read(state),accents=feedback?.read(state)||{actions:[],speech:[],reactions:[]};paintMode();
-   if(paused||document.hidden||mode()==='off'||window.PokerTableUI?.blocked()||typeof layer.animate!=='function'){finish();return;}
+   if(paused||document.hidden||window.PokerTableUI?.blocked()){finish();return;}
+   if(mode()==='off'||typeof layer.animate!=='function'){finish();for(const effect of effects){if(effect.type==='deal')for(const {seat,index}of effect.cards)deliverCue(onCue,{id:effect.id+':'+seat+':'+index,kind:'deal',scope:'table'});if(effect.type==='community')for(const index of effect.indexes)deliverCue(onCue,{id:effect.id+':board:'+index,kind:'card-place',scope:'table'});}return;}
    if(effects.some(e=>e.type==='deal'))paintPot(0);else if(!running&&!effects.some(e=>e.type==='bet'))paintPot(targetPot);
    if(game.phase==='complete'&&effects.some(e=>e.type==='community'))stage.classList.add('motion-runout');
    const bets=effects.filter(e=>e.type==='bet'&&!e.blind),latestBet=bets[bets.length-1];for(const effect of effects)if(effect.type==='bet')effect.accent=accents.actions.find(a=>a.id===effect.id);
@@ -145,7 +157,7 @@
   function setMode(value){if(!['full','simple','off'].includes(value))return;preference=value;finish();try{localStorage.setItem('dezhou-bazhu-motion',value);}catch{}}
   const select=document.getElementById('motion-mode');if(select){select.value=preference;select.onchange=()=>setMode(select.value);}
   addEventListener('resize',finish);addEventListener('pagehide',finish);document.addEventListener('visibilitychange',()=>{if(document.hidden)finish();});if(reduced?.addEventListener)reduced.addEventListener('change',finish);else reduced?.addListener?.(finish);
-  paintMode();const api={sync,finish,setMode,settled:()=>drain,stats:()=>({mode:mode(),preference,queued:queue.length,running,active:active.size,hidden:hidden.size,transient:visuals.size,played,paintedPot,targetPot,feedback:{...feedbackCounts},activeEmotions:emotionNodes.size})};window.PokerMotionView=api;return api;
+  paintMode();const api={sync,finish,setMode,settled:()=>drain,stats:()=>({mode:mode(),preference,queued:queue.length,running,dealing:[...visuals].some(n=>n.classList.contains('motion-card')&&!n.classList.contains('motion-community')),active:active.size,hidden:hidden.size,transient:visuals.size,played,paintedPot,targetPot,feedback:{...feedbackCounts},activeEmotions:emotionNodes.size})};window.PokerMotionView=api;return api;
  }
- return {createCursor,mount};
+ return {createCursor,mount,deliverCue};
 });

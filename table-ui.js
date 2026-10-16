@@ -45,18 +45,22 @@
  function placeBeside(node,seat,{bubble=false,extra=[]}={}){
   const stage=document.querySelector('.board-stage'),info=seat?.querySelector('.seat-info');if(!stage||!info||!node.offsetWidth)return false;
   const bounds=stage.getBoundingClientRect(),frame=info.getBoundingClientRect(),cards=seat.querySelector('.cards')?.getBoundingClientRect()||frame,w=node.offsetWidth,h=node.offsetHeight;
-  const obstacles=[...document.querySelectorAll('.seat-info,.seat>.cards .card,.center,.table-header h1,.table-toolbar,.drink-table')].filter(e=>e.offsetWidth&&!e.hidden).map(e=>e.getBoundingClientRect());
+  const obstacles=[...document.querySelectorAll('.seat-info,.seat>.cards .card,.center,.table-deck,.table-header h1,.table-toolbar,.drink-table')].filter(e=>e.offsetWidth&&!e.hidden).map(e=>e.getBoundingClientRect());
   if(!bubble)for(const e of document.querySelectorAll('.speech-bubble:not([hidden]),.motion-action-tag,.motion-emotion'))if(e!==node&&e.offsetWidth)obstacles.push(e.getBoundingClientRect());
   obstacles.push(...extra);
   const belowCards=Math.max(frame.bottom-22,cards.bottom+7),above=[frame.left,frame.top-h-8],left=[frame.left-w-8,frame.top+5],right=[Math.max(frame.right,cards.right)+8,frame.top+5],below=[frame.left,frame.bottom+8];
   let candidates=seat.classList.contains('top')?[[frame.left+frame.width*.65,frame.top-h-8],left,right,above,below]:seat.classList.contains('bottom')?[left,right,above,below]:seat.classList.contains('right')?[[frame.left-w-8,belowCards],above,below,left,right]:[[frame.right+8,belowCards],above,below,left,right];
   candidates=candidates.concat([[frame.right-w,frame.top-h-8],[frame.right-w,frame.bottom+8],[bounds.left+8,frame.top-h-8],[bounds.right-w-8,frame.bottom+8]]);
   const intersects=(a,b)=>a.left<b.right+3&&a.right>b.left-3&&a.top<b.bottom+3&&a.bottom>b.top-3;
-  for(const [cx,cy]of candidates){const x=Math.max(bounds.left+8,Math.min(bounds.right-w-8,cx)),y=Math.max(bounds.top+6,Math.min(bounds.bottom-h-6,cy)),rect={left:x,right:x+w,top:y,bottom:y+h};if(obstacles.some(b=>intersects(rect,b)))continue;
+  const place=([cx,cy])=>{const x=Math.max(bounds.left+8,Math.min(bounds.right-w-8,cx)),y=Math.max(bounds.top+6,Math.min(bounds.bottom-h-6,cy)),rect={left:x,right:x+w,top:y,bottom:y+h};if(obstacles.some(b=>intersects(rect,b)))return false;
    const parent=bubble?seat.getBoundingClientRect():bounds;node.style.left=x-parent.left+'px';node.style.top=y-parent.top+'px';node.style.right='auto';node.style.bottom='auto';node.style.transform='none';
    if(bubble){const side=rect.bottom<=frame.top?'above':rect.top>=frame.bottom?'below':rect.right<=frame.left?'left':'right';node.setAttribute('data-tail',side);node.style.setProperty('--tail-x',Math.max(12,Math.min(w-12,frame.left+frame.width/2-x))+'px');node.style.setProperty('--tail-y',Math.max(10,Math.min(h-10,frame.top+frame.height/2-y))+'px');}
    return true;
-  }
+  };
+  if(candidates.some(place))return true;
+  // Small screens may already contain two long speech bubbles. Find the nearest
+  // remaining clear pocket for a short action/emotion badge without hiding cards.
+  if(!bubble){const pockets=[],cx=frame.left+frame.width/2,cy=frame.top+frame.height/2;for(let y=bounds.top+6;y+h<=bounds.bottom-6;y+=Math.max(16,h/2))for(let x=bounds.left+8;x+w<=bounds.right-8;x+=Math.max(20,w/2))pockets.push([x,y]);pockets.sort((a,b)=>Math.hypot(a[0]+w/2-cx,a[1]+h/2-cy)-Math.hypot(b[0]+w/2-cx,b[1]+h/2-cy));if(pockets.some(place))return true;}
   return false;
  }
  function placeBubbles(){const placed=[];for(const bubble of document.querySelectorAll('.table .speech-bubble:not([hidden])')){

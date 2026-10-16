@@ -5,6 +5,6 @@
   navigator.serviceWorker.register('sw.js').then(reg=>{const offer=()=>{if(reg.waiting){waiting=reg.waiting;button.hidden=false;state.textContent='离线新版本已准备，结束本手后更新';}};offer();reg.addEventListener('updatefound',()=>{const worker=reg.installing;worker.addEventListener('statechange',()=>{if(worker.state==='installed')offer();});});
     return navigator.serviceWorker.ready;
   }).then(()=>{state.textContent='离线资源已缓存 · Safari 分享菜单可添加到主屏幕';}).catch(()=>{state.textContent='离线缓存未完成，当前可在线游戏';});
-  button.onclick=()=>{if(!document.getElementById('next').disabled&&waiting){requestedUpdate=true;waiting.postMessage('activate');}else state.textContent='请先结束当前一手，再更新';};
+  button.onclick=()=>{const status=window.PokerView?.status?.(),between=status?['idle','complete'].includes(status.phase):!document.getElementById('next').disabled;if(between&&waiting){requestedUpdate=true;waiting.postMessage('activate');}else state.textContent='请先结束当前一手，再更新';};
   navigator.serviceWorker.addEventListener('controllerchange',()=>{if(requestedUpdate&&!reloading){reloading=true;location.reload();}});
 })();

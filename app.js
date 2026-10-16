@@ -5,7 +5,10 @@
   const phaseNames={idle:'准备开局',preflop:'翻牌前',flop:'翻牌',turn:'转牌',river:'河牌',complete:'本手结束'};
   const S=window.PokerState,M=window.PokerEmotion,L=window.PokerLanguage,H=window.PokerChallenge,U=window.PokerSummary,F=window.PokerFace;
   const V=window.PokerTableUI,amount=n=>V?V.formatAmount(n):n.toLocaleString();
-  const FX=window.PokerMotion?.mount({formatAmount:amount});
+  const controls=window.PokerControls,draft=controls?.createDraft();
+  const audio=window.PokerAudio?.mount(),audioCursor=window.PokerAudio?.createCursor();let audioSerial=0,soundedResult=null;
+  function sound(cue){try{audio?.play(cue.kind,cue);}catch{}}
+  const FX=window.PokerMotion?.mount({formatAmount:amount,onCue:sound});
   const C=window.PokerCareer;let career=C?C.create():null,archiveCarry=[];let ledger=U?U.create():null;
   let response=null,responseTimer=null;
   function clearResponse(){clearTimeout(responseTimer);response=null;}
@@ -61,6 +64,7 @@
   }
   function render() {
     const complete=game.phase==='complete',started=game.phase!=='idle';
+    try{audio?.setTableActive(started&&!paused&&!document.hidden);}catch{}
     $('hand-info').textContent=`第 ${game.hand} 手 · ${phaseNames[game.phase]}${game.match?' · '+game.match.name:''}`;
     $('difficulty').disabled=started&&!complete;
     for(let i=1;i<4;i++){$('ai-'+i).disabled=started;$('chips-'+i).disabled=started;}
@@ -111,7 +115,8 @@
     document.querySelectorAll('[data-size]').forEach(b=>b.disabled=!l?.raise);
     if(l?.raise) {
       $('raise-to').min=l.minRaiseTo;$('raise-to').max=l.maxRaiseTo;
-      $('raise-to').value=l.minRaiseTo;
+      if(draft){const event=(game.events||[]).filter(e=>['hand-start','blind','action','community'].includes(e.type)).slice(-1)[0];draft.sync([game.tableId,game.hand,game.phase,game.actor,event?.seq??game.history.length].join('/'),{min:l.minRaiseTo,max:l.maxRaiseTo,step:Math.max(game.bb,l.minRaiseTo-game.currentBet),bet:game.players[0].bet});$('raise-to').value=draft.view().text;raisePreview();}
+      else $('raise-to').value=l.minRaiseTo;
       $('limits').textContent=`本轮总额 ${amount(l.minRaiseTo)}–${amount(l.maxRaiseTo)}；需跟注 ${amount(l.toCall)}。${l.maxRaiseTo<l.fullRaiseTo?'只能不足额全下。':''}`;
     } else $('limits').textContent=l?.call&&!l.raise?'当前可跟注或弃牌；加注权未开放，或没有可继续下注的对手。':'加注金额包含你本轮已投入的筹码。';
     const alive=game.players.filter(p=>p.stack>0);
@@ -121,8 +126,10 @@
     $('balance').textContent=`总筹码 ${(game.players.reduce((s,p)=>s+p.stack,0)+(complete?0:game.pot())).toLocaleString()}`;
     $('readout').textContent=E.styleText[A.modelOpponent(game.players[0]).style];
     $('pause').disabled=!started||complete&&!busy&&!paused;$('pause').textContent=paused?'继续':'暂停';
+    const audioState={tableId:game.tableId,hand:game.hand,seq:game.eventSeq,phase:game.phase,paused:paused||!!document.hidden,actor:game.actor,canAct:!!l,events:(game.events||[]).map(e=>({id:e.id,seq:e.seq,hand:e.hand,type:e.type,actionType:e.actionType,amount:e.amount,stackAfter:e.stackAfter}))};
+    for(const cue of audioCursor?.read(audioState)||[])sound(cue);
     V.scheduleLayout();FX?.sync(game,{paused,actor:busy?displaySeat:game.actor});
-    coach.setTurn(l?A.observe(game,0,$('difficulty').value):null);
+    coach.setTurn(l?A.observe(game,0,$('difficulty').value):null);window.PokerHome?.sync();
     $('result').hidden=!complete;$('view-result').disabled=!complete;
     if(complete) {
       const box=$('result');box.replaceChildren();
@@ -132,8 +139,10 @@
     }
   }
   function resultDialog(){
+    if(window.PokerHome?.isOpen())return;
     if(game.phase==='complete'&&game.players.filter(p=>p.stack>0).length===1)F?.reveal(game);
     if(resultShown===game.hand)return;resultShown=game.hand;const box=$('hand-result-body');box.replaceChildren();
+    const resultKey=game.tableId+':'+game.hand+':result';if(!restored&&!paused&&soundedResult!==resultKey){soundedResult=resultKey;sound({id:resultKey,kind:game.result.net[0]>0?'result-win':game.result.net[0]<0?'result-loss':'result-tie',scope:'table'});}
     const alive=game.players.filter(p=>p.stack>0);$('hand-result-title').textContent=game.players[0].stack===0?'你已被淘汰':alive.length===1?'胜利！你拿下了整桌':(game.result.net[0]>0?'本手获利':game.result.net[0]<0?'本手失利':'本手持平');
     for(const [i,detail] of Object.entries(game.result.hands||{})){const row=document.createElement('div'),name=document.createElement('p'),hole=document.createElement('div'),cards=document.createElement('div');name.textContent=`${game.players[i].name}：${P.NAMES[detail.score[0]]} · 底牌 / 最佳五张`;hole.className='cards revealed-hole';game.players[i].hole.forEach(c=>hole.append(card(c)));cards.className='cards';detail.bestFive.forEach(c=>cards.append(card(c)));row.append(name,hole,cards);box.append(row);}
     game.players.forEach((p,i)=>{if(p.hole.length===2&&!game.result.hands?.[i]){const row=document.createElement('div'),name=document.createElement('p'),hole=document.createElement('div');name.textContent=p.name+(p.folded?'（已弃牌，不参与结算）':'（独赢）');hole.className='cards revealed-hole';p.hole.forEach(c=>hole.append(card(c)));row.append(name,hole);box.append(row);}});
@@ -155,7 +164,8 @@
       selectedResult=Object.keys(game.result.hands||{})[0]??null;
       appendMessage((game.result.kind==='showdown'?'本手摊牌':'本手独赢')+' · 全桌亮牌 · '+game.players.filter(p=>p.hole.length===2).map(p=>`${p.name}${p.folded?'（已弃牌）':''}：${p.hole.map(P.cardText).join(' ')}`).join('；'),'system');
       if(L)game.players.forEach((p,i)=>{if(i&&p.hole.length){const event=p.stack===0?'bust':game.result.net[i]>0?'win':game.result.net[i]<0?'lose':'tie',text=safeSpeech(L.choose(p.profile,event,{emotion:p.emotion},speechMemory[i]||[],game.random?.speech||game.rng));p.emotion.spokenSerial=p.emotion.reactionSerial||0;appendMessage(text,'chat',p.name);(speechMemory[i]||= []).push(text);}});
-      persist();render();queue(()=>{if(token!==epoch)return;busy=false;stage='';render();resultDialog();},3000);return;
+      const finishReveal=()=>{if(token!==epoch)return;const visuals=FX?.stats();if(visuals?.running||visuals?.activeEmotions){queue(finishReveal,100);return;}busy=false;stage='';render();resultDialog();};
+      persist();render();queue(finishReveal,3000);return;
     }
     if(game.actor===null||game.actor===0){busy=false;stage='';displaySeat=null;render();return;}
     const token=epoch,seat=game.actor;busy=true;stage='thinking';displaySeat=seat;render();
@@ -164,14 +174,15 @@
       try {
         const view=A.observe(game,seat,$('difficulty').value),expected={hand:game.hand,phase:game.phase,actor:game.actor,seq:game.eventSeq};
         const key=game.tableId+':'+game.hand+':'+game.phase+':'+seat+':'+game.history.length;if(decisionSeed?.key!==key)decisionSeed={key,seed:Math.floor((game.random?.ai||game.rng)()*4294967296)};persist();
-        const apply=move=>{if(token!==epoch)return;if(paused){queue(()=>apply(move),0);return;}
+        const apply=move=>{if(token!==epoch)return;if(paused){queue(()=>apply(move),0);return;}if(FX?.stats().dealing){queue(()=>apply(move),100);return;}
           const event=move.target===view.legal.maxRaiseTo&&move.type==='raise'?'allin':move.type==='raise'?move.reason==='steal'?'steal':move.reason==='value'?'value':'raise':move.type;
           if(!commit(seat,move,expected))return;
           const text=safeSpeech(L?L.choose(game.players[seat].profile,event,{emotion:game.players[seat].emotion,rival:game.players[seat].rival,model:A.modelOpponent(view.seats[0]),targetPresent:!view.seats[0].folded&&view.seats[0].playing},speechMemory[seat]||[],game.random?.speech||game.rng):E.speech(seat,move.type,A.modelOpponent(view.seats[0]),lastSpeech[seat],game.random?.speech||Math.random,!view.seats[0].folded&&view.seats[0].playing));
           if(game.players[seat].emotion)game.players[seat].emotion.spokenSerial=game.players[seat].emotion.reactionSerial||0;
           if(game.players[seat].profile==='neymar'){const emoji=['🙃😮‍💨','😤🔥','😎🤫'][Math.floor(game.random.speech()*3)];K?.emit(game,'performance',{seat,emoji});}lastSpeech[seat]=text;(speechMemory[seat]||=[]).push(text);speechMemory[seat]=speechMemory[seat].slice(-8);
           syncLog({text,name:game.players[seat].name});$('talk').textContent=`${game.players[seat].name}：「${text}」`;stage='reading';persist();render();
-          queue(()=>{if(token!==epoch)return;stage='';busy=false;schedule();},Math.max(3000,E.timing($('pace').value,move.type,text).hold));
+          const hold=E.timing($('pace').value,move.type,text).hold;
+          queue(()=>{if(token!==epoch)return;stage='';busy=false;schedule();},controls?controls.readingHold($('pace').value,hold):Math.max(3000,hold));
         };
         if(window.PokerCompute&&typeof Worker!=='undefined')window.PokerCompute.run(view,decisionSeed.seed,{owner:'ai'}).then(result=>apply(result.move)).catch(error=>{if(token!==epoch||error.code==='CANCELLED')return;console.warn('AI task:',error);appendMessage('本地计算未完成，本次采用安全操作。','system');apply({type:view.legal.check?'check':'fold'});});
         else {const random=K?K.random(decisionSeed.seed):game.rng;apply(window.PokerStrategy?window.PokerStrategy.decide(view,window.PokerStrategy.analyze(view,random),random):A.decide(view,random));}
@@ -179,10 +190,10 @@
     },E.timing($('pace').value,'think').think);
   }
   function action(type,target) {
-    if(initializing||game.actor!==0||busy||paused||V.blocked())return;
-    FX?.finish();
-    try {commit(0,{type,target});syncLog();if(L)game.players.forEach((p,i)=>{if(i)appendMessage(safeSpeech(L.choose(p.profile,'open',{rival:p.rival},[],game.random.speech)),'chat',p.name);});persist();render();schedule();}
-    catch(e){$('status').textContent=e.message;}
+    if(initializing||game.actor!==0||busy||paused||V.blocked())return false;
+    FX?.finish({keepEmotions:true});
+    try {commit(0,{type,target});syncLog();if(L)game.players.forEach((p,i)=>{if(i)appendMessage(safeSpeech(L.choose(p.profile,'open',{rival:p.rival},[],game.random.speech)),'chat',p.name);});persist();render();schedule();return true;}
+    catch(e){$('status').textContent=e.message;return false;}
   }
   $('fold').onclick=()=>action('fold');
   $('challenge-open').onclick=()=>{
@@ -207,23 +218,30 @@
     }catch(e){$('challenge-state').textContent=e.message;}
   };
   $('call').onclick=()=>action(game.legal()?.check?'check':'call');
-  $('raise').onclick=()=>action('raise',Number($('raise-to').value));
-  for(const [id,direction]of [['raise-down',-1],['raise-up',1]])$(id).onclick=()=>{const l=game.legal();if(game.actor!==0||busy||paused||V.blocked()||!l?.raise)return;const current=Number($('raise-to').value),step=Math.max(game.bb,l.minRaiseTo-game.currentBet);$('raise-to').value=Math.max(l.minRaiseTo,Math.min(l.maxRaiseTo,(Number.isSafeInteger(current)?current:l.minRaiseTo)+direction*step));};
+  function raisePreview(){if(!draft)return;const value=draft.view(),node=$('raise-preview'),inline=$('raise-inline-preview');if(node){node.textContent=value.error||'本次还需投入 '+amount(value.additional);node.className='hint'+(value.error?' input-error':'');}if(inline)inline.textContent=value.error?'':'本次投入 '+amount(value.additional);return value;}
+  $('raise-to').oninput=()=>{draft?.edit($('raise-to').value);raisePreview();};
+  $('raise').onclick=()=>{if(game.actor!==0||busy||paused||V.blocked())return false;if(draft){draft.edit($('raise-to').value);const value=raisePreview();if(value.error){$('status').textContent=value.error;return false;}return action('raise',value.total);}return action('raise',Number($('raise-to').value));};
+  for(const [id,direction]of [['raise-down',-1],['raise-up',1]])$(id).onclick=()=>{const l=game.legal();if(game.actor!==0||busy||paused||V.blocked()||!l?.raise)return false;if(draft){draft.edit($('raise-to').value);const changed=draft.step(direction);$('raise-to').value=draft.view().text;raisePreview();if(changed)sound({id:'adjust:'+ ++audioSerial,kind:'adjust',scope:'ui'});return changed;}const current=Number($('raise-to').value),step=Math.max(game.bb,l.minRaiseTo-game.currentBet);$('raise-to').value=Math.max(l.minRaiseTo,Math.min(l.maxRaiseTo,(Number.isSafeInteger(current)?current:l.minRaiseTo)+direction*step));};
   $('raise-to').onkeydown=e=>{if(e.key==='Enter')$('raise').click();};
+  const steppers=['raise-down','raise-up'].map(id=>{const element=$(id);return controls&&element.addEventListener?controls.bindStepper(element,{onStep:element.onclick,canStep:()=>game.actor===0&&!busy&&!paused&&!V.blocked()&&!!game.legal()?.raise}):null;});
   $('allin').onclick=()=>{const l=game.legal();if(l)action(l.raise?'raise':'call',l.maxRaiseTo);};
   document.querySelectorAll('[data-size]').forEach(b=>b.onclick=()=>{
-    const l=game.legal();if(!l?.raise)return;
+    const l=game.legal();if(game.actor!==0||busy||paused||V.blocked()||!l?.raise)return;
+    const previous=$('raise-to').value;
     const mult={half:0.5,pot:1,double:2}[b.dataset.size];
     const target=b.dataset.size==='min'?l.minRaiseTo:game.currentBet+Math.round((game.pot()+l.toCall)*mult);
     $('raise-to').value=Math.max(l.minRaiseTo,Math.min(l.maxRaiseTo,target));
+    draft?.edit($('raise-to').value);raisePreview();
+    if(String(previous)!==String($('raise-to').value))sound({id:'adjust:'+ ++audioSerial,kind:'adjust',scope:'ui'});
   });
   $('next').onclick=()=>{if(initializing||busy||paused||V.blocked())return;FX?.finish();try{if(game.match?.finalized){if(game.mode==='tournament'&&career.tournament?.status==='between')launch(C.advance(career,game));else careerUI?.open();return;}if(game.phase==='idle'){
     const stacks=[1500,...[1,2,3].map(i=>Number($('chips-'+i).value||1500))];if(stacks.some(n=>!Number.isInteger(n)||n<1||n>1000000))throw new Error('初始筹码须为 1–1,000,000 的整数');
     const profiles=['human',...[1,2,3].map(i=>$('ai-'+i).value||['','maniac','calculator','gambler'][i])];if(A.PROFILES&&profiles.slice(1).some(id=>!A.PROFILES[id]))throw new Error('请选择有效的对手');
     game=S?S.create({stacks,profiles},Date.now()):new P.Game({stacks,profiles});F?.configure(game,A.PROFILES,$('pokerface').checked);hydratePlayers();
-  }clearResponse();$('challenge-dialog').close?.();selectedResult=null;C?.blind(game);game.startHand();game.players.forEach(p=>{if(p.emotion)M.begin(p.emotion,p.profile);});window.PokerStrategy?.begin(game);K?.emit(game,'emotion',{cause:'hand-start'},{emotions:game.players.map((p,i)=>({seat:i,after:p.emotion||null}))});logCursor=0;syncLog();if(game.hand===1&&L)game.players.forEach((p,i)=>{if(i)appendMessage(safeSpeech(L.choose(p.profile,'open',{rival:p.rival},[],game.random?.speech||game.rng)),'chat',p.name);});persist();render();schedule();}catch(e){$('status').textContent=e.message;}};
+  }clearResponse();$('challenge-dialog').close?.();selectedResult=null;C?.blind(game);game.startHand();window.PokerHome?.enterTable();game.players.forEach(p=>{if(p.emotion)M.begin(p.emotion,p.profile);});window.PokerStrategy?.begin(game);K?.emit(game,'emotion',{cause:'hand-start'},{emotions:game.players.map((p,i)=>({seat:i,after:p.emotion||null}))});logCursor=0;syncLog();if(game.hand===1&&L)game.players.forEach((p,i)=>{if(i)appendMessage(safeSpeech(L.choose(p.profile,'open',{rival:p.rival},[],game.random?.speech||game.rng)),'chat',p.name);});persist();render();schedule();}catch(e){$('status').textContent=e.message;}};
   $('restart').onclick=()=>{if(game.match&&!game.match.finalized){try{C.withdraw(career,game);persist();render();careerUI.open();}catch(error){$('status').textContent=error.message;}return;}if(game.phase!=='idle'&&!confirm('重新开始四人对战？筹码、聊天记录与对手记忆将重置，历史战绩会保留。'))return;F?.reveal(game);if(U)U.abandon(ledger,game);K?.emit(game,'table-end',{reason:'restart'});persist(false);const revealed=F?.mappings(game,A.PROFILES)||[];epoch++;decisionSeed=null;clearResponse();$('challenge-dialog').close?.();clearTimeout(timer);window.PokerCompute?.cancel();pendingJob=null;busy=false;paused=false;stage='';displaySeat=null;logCursor=0;unread=0;revealedHand=0;resultShown=0;selectedResult=null;conversation.length=0;for(const key of Object.keys(lastSpeech))delete lastSpeech[key];for(const key of Object.keys(speechMemory))delete speechMemory[key];$('history').replaceChildren();$('latest').hidden=true;game=S?S.create():new P.Game();hydratePlayers();$('talk').textContent=revealed.length?'上一桌身份揭晓：'+revealed.join('；'):'新的一桌，重新选择对手与筹码。';if(revealed.length)appendMessage('上一桌身份揭晓：'+revealed.join('；'),'system');syncMode();$('hand-result').close?.();coach.setTurn(null);persist();render();};
   function setPaused(value,reason='manual'){
+    if(value)steppers.forEach(stepper=>stepper?.cancel());
     if(paused===value||initializing||!value&&V.blocked())return;
     paused=value;
     if(paused){if(pendingJob){remaining=Math.max(0,deadline-Date.now());clearTimeout(timer);}else if(stage==='thinking'){epoch++;window.PokerCompute?.cancel('ai');busy=false;stage='';displaySeat=null;restored=true;}}
@@ -243,16 +261,23 @@
     $('pace').value=saved.extras.pace||'standard';$('difficulty').value=saved.extras.difficulty||'pressure';
     decisionSeed=saved.extras.decisionSeed||null;Object.assign(lastSpeech,saved.extras.lastSpeech||{});Object.assign(speechMemory,saved.extras.speechMemory||{});resultShown=0;
     recording=false;for(const entry of saved.extras.conversation||[]){const hand=game.hand;game.hand=entry.hand;appendMessage(entry.text,entry.kind,entry.speaker);game.hand=hand;}
-    recording=true;if(game.phase==='complete'){revealedHand=game.hand;resultDialog();}
+    recording=true;if(game.phase==='complete'){revealedHand=game.hand;soundedResult=game.tableId+':'+game.hand+':result';resultDialog();}
     $('save-state').textContent='已恢复本机存档，点击继续。';
   }}catch{initializing=false;recording=true;$('save-state').textContent='存档损坏或版本不兼容，未覆盖旧存档；开始新对战会替换存档。';}}
   initializing=false;if(repository?.db&&storage){try{const saved=S.load(storage);if(saved?.game.historyPartial){$('save-state').textContent='旧版进度已恢复；旧牌局缺少完整复盘，之后开始记录。';}}catch{}}
   if(saveError)$('save-state').textContent=saveError;
   $('setup-career').onclick=()=>{$('mobile-panel-close').click?.();careerUI?.open();};
-  const careerUI=window.PokerCareerUI?.mount(()=>({career,game}),{pause:()=>{if(!['idle','complete'].includes(game.phase)&&!paused)setPaused(true);},tournament:()=>{if(V.blocked())throw Error('请横屏后开始赛事');launch(C.startTournament(career));},advance:()=>{if(V.blocked())throw Error('请横屏后晋级');launch(C.advance(career,game));},grandprix:pool=>{if(V.blocked())throw Error('请横屏后买入');launch(C.enter(career,pool));},bailout:()=>{C.bailout(career);persist();},withdraw:()=>{C.withdraw(career,game);persist();render();}});
-  function launch(next){if(V.blocked())throw Error('请横屏后开始赛事');if(!['idle','complete'].includes(game.phase))throw Error('请先完成当前一手');if(game.phase!=='idle'){F?.reveal(game);U?.abandon(ledger,game);}archiveCarry.push(...(game.events||[]),...(next.events||[]));epoch++;window.PokerCompute?.cancel();clearTimeout(timer);clearResponse();pendingJob=null;decisionSeed=null;busy=false;paused=false;restored=false;stage='';displaySeat=null;logCursor=0;unread=0;revealedHand=0;resultShown=0;conversation.length=0;for(const key of Object.keys(lastSpeech))delete lastSpeech[key];for(const key of Object.keys(speechMemory))delete speechMemory[key];$('history').replaceChildren();$('hand-result').close?.();game=next;hydratePlayers();$('pokerface').checked=!!game.pokerface?.enabled;syncMode();C.blind(game);game.startHand();game.players.forEach(p=>M?.begin(p.emotion,p.profile));window.PokerStrategy?.begin(game);K?.emit(game,'emotion',{cause:'hand-start'},{emotions:game.players.map((p,i)=>({seat:i,after:p.emotion}))});syncLog();if(L)game.players.forEach((p,i)=>{if(i)appendMessage(safeSpeech(L.choose(p.profile,'open',{rival:p.rival},[],game.random.speech)),'chat',p.name);});persist();render();schedule();}
+  const careerUI=window.PokerCareerUI?.mount(()=>({career,game}),{quick:()=>window.PokerHome.openQuick(),pause:()=>{if(!['idle','complete'].includes(game.phase)&&!paused)setPaused(true);},tournament:()=>{if(V.blocked())throw Error('请横屏后开始赛事');if(!['idle','complete'].includes(game.phase))throw Error('请先完成当前一手');launch(C.startTournament(career));},advance:()=>{if(V.blocked())throw Error('请横屏后晋级');launch(C.advance(career,game));},grandprix:pool=>{if(V.blocked())throw Error('请横屏后买入');if(!['idle','complete'].includes(game.phase))throw Error('请先完成当前一手');launch(C.enter(career,pool));},bailout:()=>{C.bailout(career);persist();},withdraw:()=>{C.withdraw(career,game);persist();render();}});
+  function launch(next){if(V.blocked())throw Error('请横屏后开始赛事');if(!['idle','complete'].includes(game.phase))throw Error('请先完成当前一手');if(game.phase!=='idle'){F?.reveal(game);U?.abandon(ledger,game);}archiveCarry.push(...(game.events||[]),...(next.events||[]));epoch++;window.PokerCompute?.cancel();clearTimeout(timer);clearResponse();pendingJob=null;decisionSeed=null;busy=false;paused=false;restored=false;stage='';displaySeat=null;logCursor=0;unread=0;revealedHand=0;resultShown=0;conversation.length=0;for(const key of Object.keys(lastSpeech))delete lastSpeech[key];for(const key of Object.keys(speechMemory))delete speechMemory[key];$('history').replaceChildren();$('hand-result').close?.();game=next;hydratePlayers();$('pokerface').checked=!!game.pokerface?.enabled;syncMode();C.blind(game);game.startHand();window.PokerHome?.enterTable();game.players.forEach(p=>M?.begin(p.emotion,p.profile));window.PokerStrategy?.begin(game);K?.emit(game,'emotion',{cause:'hand-start'},{emotions:game.players.map((p,i)=>({seat:i,after:p.emotion}))});syncLog();if(L)game.players.forEach((p,i)=>{if(i)appendMessage(safeSpeech(L.choose(p.profile,'open',{rival:p.rival},[],game.random.speech)),'chat',p.name);});persist();render();schedule();}
   if(repository)window.PokerReview?.mount({repository,getLedger:()=>ledger,getCareer:()=>career,getGame:()=>game,pause:()=>{if(!['idle','complete'].includes(game.phase)&&!paused)setPaused(true);},persist:()=>persist()});
-  window.PokerView={pause:reason=>{if(game.phase!=='idle')setPaused(true,reason);}};
+  window.PokerView={
+    pause:reason=>{if(game.phase!=='idle')setPaused(true,reason);},
+    status:()=>({started:game.phase!=='idle',phase:game.phase,paused,mode:game.mode||'quick',activeCareer:!!career?.active}),
+    resume:()=>{if(initializing||game.phase==='idle')throw Error('请先从“开始游戏”选择一种玩法。');if(V.blocked())throw Error('请横屏后继续牌局。');setPaused(false,'home-continue');if(game.phase==='complete'&&!busy)resultDialog();},
+    openLobby:()=>careerUI?.open(),
+    prepareQuick:()=>{if(initializing)throw Error('正在恢复进度，请稍等。');if(!['idle','complete'].includes(game.phase))throw Error('请先继续游戏，完成当前一手后再切换模式。');if(career?.active||game.match&&!game.match.finalized)throw Error('请先在赛事大厅结算后退赛，剩余筹码会返还。');if(game.phase!=='idle'){$('restart').onclick();if(game.phase!=='idle')throw Error('已保留当前牌桌。');}},
+    startQuick:()=>{if(game.phase!=='idle')throw Error('当前牌桌尚未结束。');$('next').onclick();if(game.phase==='idle')throw Error($('status').textContent);}
+  };
   render();window.PokerReady=true;window.dispatchEvent?.(new Event('poker-ready'));
 })();
 
